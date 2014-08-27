@@ -1,0 +1,35 @@
+remove global degeneracy between shifting all centers and shifting all PCAs
+
+replace many flat vectors by ndarray's
+
+subclass of ImagePsf
+  should have routine to compute image, e.g.
+    virtual void _computePsfImage(double *out, int nx, int ny, int x0, int y0, double x, double y, int icand)
+  this routine can be used other places, e.g. to move xy optimization higher in the class hierarchy
+
+move _optimize_pcas() higher in class hierarchy
+
+oops, the _update*() methods should contain the class name for uniformity (e.g. _updatePcaBase())
+
+scattered FIXMEs throughout code
+
+fit_basis_images() should have an optional arg to output the best-fit linear combination of images (not just the coeffs)
+this could be used to clean up in a few places, e.g. HscPcaPsfNoSM::_optimize_pca_coeffs_and_update()
+
+when the HscCandidateSet is constructed, test whether SpatialCellCandidate is already marked BAD?
+
+think about NeigenComponents=1 case more carefully!
+
+spline and lanczos interpolation from afw::math
+
+could get rid of class HscPcaPsfNoSM by including icand in spatial_model
+
+do test with transposing in doComputeImage(), doComputeKernelImage()
+
+get rid of hackery in chisqPsfDeterminer
+  - configHack()
+  - need to specify an outdir
+
+FEATURES THAT MIGHT BE ADDED
+  - build in distortion
+  - intensity dependence
