@@ -37,6 +37,7 @@ class FakePsfexPsf : public HscPsfBase
 {
 public:
     FakePsfexPsf(CONST_PTR(HscCandidateSet) cs, int nside, int spatialOrder, double fwhm, double backnoise2, double gain);
+    FakePsfexPsf(CONST_PTR(HscCandidateSet) cs, CONST_PTR(FakePsfexPsf) base);
 
     void psf_make(double prof_accuracy);
     void psf_makeresi(double prof_accuracy);
@@ -48,19 +49,19 @@ public:
     // @out = output array of shape (_psf_nx, _psf_ny)
     // @pos = input_array of shape (2,)
     //
-    void psf_build(double *loc, const double *pos);
+    void psf_build(double *loc, const double *pos) const;
 
     //
     // @basis = output array of shape (ncoeffs,)
     // @pos = input array of shape (2,)
     //
-    void poly_func(double *basis, const double *pos);
+    void poly_func(double *basis, const double *pos) const;
 
     // 
     // @basis = output array of shape (ncand, ncoeffs)
     // @pos = input array of shape (ncand, 2)
     //
-    void poly_eval_basis_functions(double *basis, const double *pos);
+    void poly_eval_basis_functions(double *basis, const double *pos) const;
 
     //
     // @coeffs = output array of shape (ncoeffs,)
@@ -68,7 +69,7 @@ public:
     // @weights = input array of shape (ncand,)
     // @basis = input array of shape (ncand, ncoeffs), probably computed using poly_eval_basis_functions()
     //
-    void poly_fit(double *coeffs, const double *data, const double *weights, const double *basis, double regul);
+    void poly_fit(double *coeffs, const double *data, const double *weights, const double *basis, double regul) const;
 
 protected:
     int _spatialOrder;
@@ -93,6 +94,11 @@ protected:
     std::vector<double> _vigresi;        // shape (_ncand, _nx, _ny)
     std::vector<double> _vigchi;         // shape (_ncand, _nx, _ny)    per-pixel contribution to chi^2
     std::vector<double> _chi2;           // shape (_ncand,)             reduced chi^2
+
+    virtual void eval(int nx_out, int ny_out, double x0, double y0, double *out, double x, double y) const;
+
+private:
+    void _construct(int spatialOrder, double fwhm, double backnoise2, double gain);
 };
 
 

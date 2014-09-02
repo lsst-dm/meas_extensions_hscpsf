@@ -271,7 +271,46 @@ class FakePsfexPsfDeterminer(object):
 
         psf = hscpsfLib.FakePsfexPsf(cs, nside, self.config.spatialOrder, fwhm, backnoise2, gain)
         psf.psf_make(0.2)
-        psf.psf_clean(0.2)
+        cs = psf.psf_clean(0.2)
+
+        psf = hscpsfLib.FakePsfexPsf(cs, psf)
+        psf.psf_make(0.1)
+        cs = psf.psf_clean(0.1)
+
+        psf = hscpsfLib.FakePsfexPsf(cs, psf)
+        psf.psf_make(0.05)
+        cs = psf.psf_clean(0.05)
+
+        psf = hscpsfLib.FakePsfexPsf(cs, psf)
+        psf.psf_make(0.01)
+        psf.psf_clip()
+
+        if 1:
+            position = afwGeom.Point2D(2000.23, 1000.62)
+
+            im0 = psf.doComputeImage(position, afwImage.Color())
+            arr0 = np.transpose(im0.getArray())
+
+            im1 = psf.doComputeKernelImage(position, afwImage.Color())
+            arr1 = np.transpose(im1.getArray())
+
+            print >>sys.stderr, 'psfexPsfDeterminer: average position =', psf.getAveragePosition()
+
+            print >>sys.stderr, 'psfexPsfDeterminer: doComputeImage(%s) follows' % position
+            print >>sys.stderr, '    doComputeImage: xy0=', im0.getXY0()
+            print >>sys.stderr, '    doComputeImage: width=', im0.getWidth()
+            print >>sys.stderr, '    doComputeImage: height=', im0.getHeight()
+            for i in xrange(im0.getWidth()):
+                for j in xrange(im0.getHeight()):
+                    print >>sys.stderr, '    doComputeImage (%d,%d): %s' % (i,j,arr0[i,j])
+
+            print >>sys.stderr, 'psfexPsfDeterminer: doComputeKernelImage(%s) follows' % position
+            print >>sys.stderr, '    doComputeKernelImage: xy0=', im1.getXY0()
+            print >>sys.stderr, '    doComputeKernelImage: width=', im1.getWidth()
+            print >>sys.stderr, '    doComputeKernelImage: height=', im1.getHeight()
+            for i in xrange(im1.getWidth()):
+                for j in xrange(im1.getHeight()):
+                    print >>sys.stderr, '    doComputeKernelImage (%d,%d): %s' % (i,j,arr1[i,j])
 
         raise RuntimeError('THE WORLD SHOULD PROBABLY BE DESTROYED NOW')
 

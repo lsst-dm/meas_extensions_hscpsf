@@ -40,25 +40,34 @@ namespace lsst { namespace meas { namespace extensions { namespace hscpsf {
 #endif
 
 
-FakePsfexPsf::FakePsfexPsf(CONST_PTR(HscCandidateSet) cs, int nside, int spatialOrder, double fwhm, double backnoise2, double gain)
-    : HscPsfBase(cs,nside),
-      _spatialOrder(spatialOrder), 
-      _ncoeffs(((spatialOrder+1) * (spatialOrder+2)) / 2),
-      _fwhm(fwhm), _backnoise2(backnoise2), _gain(gain), 
-      _norm(_ncand), _contextoffset(2), _contextscale(2),
-      _vigweight(_ncand * _nx * _ny), 
-      _vigresi(_ncand * _nx * _ny, 0.0),
-      _vigchi(_ncand * _nx * _ny, 0.0),
-      _chi2(_ncand, 0.0)
-{ 
+// private helper function for constructors
+void FakePsfexPsf::_construct(int spatialOrder, double fwhm, double backnoise2, double gain)
+{
     if (spatialOrder < 0)
         throw LSST_EXCEPT(pex::exceptions::InvalidParameterException, "spatialOrder < 0 in FakePsfexPsf constructor");
+
+    _spatialOrder = spatialOrder;
+    _ncoeffs = ((spatialOrder+1) * (spatialOrder+2)) / 2;
+    _fwhm = fwhm;
+    _backnoise2 = backnoise2;
+    _gain = gain;
+
+
     if (_ncand <= _ncoeffs)
         throw LSST_EXCEPT(pex::exceptions::InvalidParameterException, "too few spatial candidates in FakePsfexPsf constructor");
 
     std::cerr << "FIXME !!! setting (psf_nx,psf_ny) = (cand_nx,cand_ny), revisit !!!\n";
     _psf_nx = _nx;
     _psf_ny = _ny;
+
+    _norm.resize(_ncand);
+    _contextoffset.resize(2, 0.0);   // note: allocated here, but initialized in constructor body
+    _contextscale.resize(2, 0.0);    // note: allocated here, but initialized in constructor body
+    _vigweight.resize(_ncand * _nx * _ny);
+    _comp.resize(_ncoeffs * _psf_nx * _psf_ny, 0.0);
+    _vigresi.resize(_ncand * _nx * _ny, 0.0);
+    _vigchi.resize(_ncand * _nx * _ny, 0.0);    
+    _chi2.resize(_ncand, 0.0);
 
     _psfstep = _fwhm/2.35 * 0.5;
 
@@ -73,12 +82,6 @@ FakePsfexPsf::FakePsfexPsf(CONST_PTR(HscCandidateSet) cs, int nside, int spatial
             throw LSST_EXCEPT(pex::exceptions::RuntimeErrorException, "flux < 0 in FakePsfexPsf constructor");
         _norm[icand] = flux;
     }
-
-    // FIXME revisit
-    _contextoffset[0] = (_xmin + _xmax) / 2.0;
-    _contextoffset[1] = (_ymin + _ymax) / 2.0;
-    _contextscale[0] = (_xmax - _xmin);
-    _contextscale[1] = (_ymax - _ymin);    
 
     //
     // vigweight initialization offset modeled on psfex sample_utils.c make_weights()
@@ -95,8 +98,48 @@ FakePsfexPsf::FakePsfexPsf(CONST_PTR(HscCandidateSet) cs, int nside, int spatial
             _vigweight[i] = 1.0 / noise2;
         }
     }
+}
 
-    _comp.resize(_ncoeffs * _psf_nx * _psf_ny, 0.0);
+
+FakePsfexPsf::FakePsfexPsf(CONST_PTR(HscCandidateSet) cs, int nside, int spatialOrder, double fwhm, double backnoise2, double gain)
+    : HscPsfBase(cs,nside)
+{ 
+    this->_construct(spatialOrder, fwhm, backnoise2, gain);
+    
+    // FIXME revisit
+    _contextoffset[0] = (_xmin + _xmax) / 2.0;
+    _contextoffset[1] = (_ymin + _ymax) / 2.0;
+    _contextscale[0] = (_xmax - _xmin);
+    _contextscale[1] = (_ymax - _ymin);    
+
+    if (1) {
+        std::cerr << "FakePsfexPsf constructor: dumping context\n";
+        for (int i = 0; i < _ncand; i++)
+            std::cerr << "    FakePsfexPsf constructor: n=" << i << "  context=[ " 
+                      << _initial_xy[2*i] << " " << _initial_xy[2*i+1] << " ]\n";
+
+        std::cerr << "FakePsfexPsf constructor: cmin = [ "
+                  << _xmin << " " << _ymin << " ]\n";
+
+        std::cerr << "FakePsfexPsf constructor: cmax = [ "
+                  << _xmax << " " << _ymax << " ]\n";
+
+        std::cerr << "FakePsfexPsf constructor: setting contextscale = [ "
+                  << _contextscale[0] << " " << _contextscale[1] << " ]\n";
+
+        std::cerr << "FakePsfexPsf constructor: setting contextoffset = [ "
+                  << _contextoffset[0] << " " << _contextoffset[1] << " ]\n";
+    }
+}
+
+
+FakePsfexPsf::FakePsfexPsf(CONST_PTR(HscCandidateSet) cs, CONST_PTR(FakePsfexPsf) base)
+    : HscPsfBase(cs, base->_nside)
+{
+    this->_construct(base->_spatialOrder, base->_fwhm, base->_backnoise2, base->_gain);
+
+    _contextoffset = base->_contextoffset;
+    _contextscale = base->_contextscale;
 }
 
 
@@ -144,29 +187,37 @@ void FakePsfexPsf::psf_make(double prof_accuracy)
         pos[2*icand+1] = (_current_xy[2*icand+1] - _contextoffset[1]) / _contextscale[1];
     }
 
-    if (0) {
+    if (1) {
+        std::cerr << "psf_make(" << prof_accuracy << "): dumping vig/image/weight\n";
         for (int icand = 0; icand < _ncand; icand++) {
             // psfex sample->dx, sample->dy
             double dx = _current_xy[2*icand] - _xy0[2*icand] - 0.5*(double)(_nx-1);
             double dy = _current_xy[2*icand+1] - _xy0[2*icand+1] - 0.5*(double)(_ny-1);
-            
+
+#if 0            
             int vi = (1013*icand+10) % _nx;
             int vj = (1031*icand+10) % _ny;
             int ii = (1013*icand+10) % _psf_nx;
             int ij = (1031*icand+10) % _psf_ny;
+#else
+            int vi = 11;
+            int vj = 11;
+            int ii = 11;
+            int ij = 11;
+#endif
             
-            std::cerr << "n=" << icand 
-                      << " norm=" << _norm[icand]
-                      << " gain=" << _gain
-                      << " backnoise2=" << _backnoise2
-                      << " (dx,dy)=(" << dx << "," << dy << ")"
+            std::cerr << "  n=" << icand 
+                      << "     norm=" << _norm[icand]
+                      << "     gain=" << _gain
+                      << "     backnoise2=" << _backnoise2
+                      << "     (dx,dy)=(" << dx << "," << dy << ")"
                       << "\n            "
-                      << " vig[" << vi << "," << vj << "]=" << _im[icand*_nx*_ny + vi*_ny + vj]
-                      << " image[" << ii << "," << ij << "]=" << image[icand*_psf_nx*_psf_ny + ii*_psf_ny + ij]
-                      << " weight[" << ii << "," << ij << "]=" << weight[icand*_psf_nx*_psf_ny + ii*_psf_ny + ij]
+                      << "     vig[" << vi << "," << vj << "]=" << _im[icand*_nx*_ny + vi*_ny + vj]
+                      << "     image[" << ii << "," << ij << "]=" << image[icand*_psf_nx*_psf_ny + ii*_psf_ny + ij]
+                      << "     weight[" << ii << "," << ij << "]=" << weight[icand*_psf_nx*_psf_ny + ii*_psf_ny + ij]
                       << "\n            "
-                      << " context=[ " << _current_xy[2*icand] << " " << _current_xy[2*icand+1] << " ]"
-                      << " pos=[ " << pos[2*icand] << " " << pos[2*icand+1] << " ]"
+                      << "     context=[ " << _current_xy[2*icand] << " " << _current_xy[2*icand+1] << " ]"
+                      << "     pos=[ " << pos[2*icand] << " " << pos[2*icand+1] << " ]"
                       << std::endl;
         }
     }
@@ -191,16 +242,18 @@ void FakePsfexPsf::psf_make(double prof_accuracy)
             _comp[icoeff*npix + ipix] = coeff[icoeff];
     }
 
-    if (0) {
+    if (1) {
+        std::cerr << "psf_make(" << prof_accuracy << "): dumping basis_functions\n";
         for (int icand = 0; icand < _ncand; icand++) {
-            std::cerr << "  n=" << icand << "  basis_functions = [";
+            std::cerr << "  psf_make(" << prof_accuracy << "): ncand=" << icand << "  basis_functions = [";
             for (int icoeff = 0; icoeff < _ncoeffs; icoeff++)
                 std::cerr << " " << basis[icand*_ncoeffs + icoeff];
             std::cerr << " ]\n";
         }
     }
 
-    if (0) {
+    if (1) {
+        std::cerr << "psf_make(" << prof_accuracy << "): dumping polynomial coefficients\n";
         for (int ix = 0; ix < _psf_nx; ix++) {
             for (int iy = 0; iy < _psf_ny; iy++) {
                 std::cerr << "    psf_make (ix,iy)=(" << ix << "," << iy << "): comp = [";
@@ -258,14 +311,41 @@ PTR(HscCandidateSet) FakePsfexPsf::psf_clean(double prof_accuracy)
 
     PTR(HscCandidateSet) ret = boost::make_shared<HscCandidateSet>(_cs->getMaskBits(), _nx, _ny);
 
+#if 0
+    //
+    // Drop candidates which exceed the chi^2 threshold, the straightforward way
+    //
     for (int icand = 0; icand < _ncand; icand++) {
-        if (_chi2[icand] > chi2max) {
+        if (_chi2[icand] <= chi2max) {
             std::cerr << "psf_clean(" << prof_accuracy << "): dropped candidate " 
                       << icand << "/" << _ncand << " (chi2=" << _chi2[icand] << ")" << std::endl;
         }
         else
             ret->add(_cs, icand);
     }
+#else
+    //
+    // Drop candidates which exceed the chi^2 threshold, with psfex ordering convention
+    //
+    std::vector<int> ix_map(_ncand);
+    n = _ncand;
+
+    for (int i = 0; i < n; i++)
+        ix_map[i] = i;
+
+    for (int i = 0; i < n; ) {
+        if (_chi2[ix_map[i]] > chi2max) {
+            std::cerr << "psf_clean(" << prof_accuracy << "): dropped candidate " 
+                      << ix_map[i] << "/" << _ncand << " (chi2=" << _chi2[ix_map[i]] << ")" << std::endl;
+            std::swap(ix_map[i], ix_map[n-1]);
+            n--;
+        }
+        else {
+            ret->add(_cs, ix_map[i]);
+            i++;
+        }
+    }
+#endif
 
     return ret;
 }
@@ -304,7 +384,7 @@ void FakePsfexPsf::psf_clip()
         }
     }
             
-    if (0) {
+    if (1) {
         for (int ix = 0; ix < _psf_nx; ix++) {
             for (int iy = 0; iy < _psf_ny; iy++) {
                 std::cerr << "    psf_clip (ix,iy)=(" << ix << "," << iy << "):  [";
@@ -320,7 +400,7 @@ void FakePsfexPsf::psf_clip()
 }
 
 
-void FakePsfexPsf::psf_build(double *loc, const double *pos)
+void FakePsfexPsf::psf_build(double *loc, const double *pos) const
 {
     int npix = _psf_nx * _psf_ny;
     memset(loc, 0, npix * sizeof(double));
@@ -421,7 +501,7 @@ void FakePsfexPsf::psf_makeresi(double prof_accuracy)
 // -------------------------------------------------------------------------------------------------
 
 
-void FakePsfexPsf::poly_func(double *basis, const double *pos)
+void FakePsfexPsf::poly_func(double *basis, const double *pos) const
 {
     double x = pos[0];
     double y = pos[1];
@@ -443,7 +523,7 @@ void FakePsfexPsf::poly_func(double *basis, const double *pos)
 
 
 // FIXME call poly_func() in loop?
-void FakePsfexPsf::poly_eval_basis_functions(double *basis, const double *pos)
+void FakePsfexPsf::poly_eval_basis_functions(double *basis, const double *pos) const
 {
     std::vector<double> xpow(_spatialOrder+1);
     std::vector<double> ypow(_spatialOrder+1);
@@ -466,7 +546,7 @@ void FakePsfexPsf::poly_eval_basis_functions(double *basis, const double *pos)
 }
 
 
-void FakePsfexPsf::poly_fit(double *coeffs, const double *data, const double *weights, const double *basis, double regul)
+void FakePsfexPsf::poly_fit(double *coeffs, const double *data, const double *weights, const double *basis, double regul) const
 {
     Eigen::MatrixXd alpha(_ncoeffs, _ncoeffs);
     Eigen::VectorXd beta(_ncoeffs);
@@ -497,6 +577,36 @@ void FakePsfexPsf::poly_fit(double *coeffs, const double *data, const double *we
 }
 
 
+// follows PsfexPsf::_doComputeImage() in meas_extensions_psfex
+void FakePsfexPsf::eval(int nx_out, int ny_out, double x0, double y0, double *out, double x, double y) const
+{
+    const double vigstep = 1 / _psfstep;
+
+    double pos[2];
+    pos[0] = (x - _contextoffset[0]) / _contextscale[0];
+    pos[1] = (y - _contextoffset[1]) / _contextscale[1];
+
+    std::vector<double> fullresIm(_psf_nx * _psf_ny);      
+    psf_build(&fullresIm[0], pos);
+
+    double dx = x - x0 - 0.5*(nx_out-1);
+    double dy = y - y0 - 0.5*(ny_out-1);
+
+    vignet_resample_xmajor(&fullresIm[0], _psf_nx, _psf_ny,
+                           out, nx_out, ny_out,
+                           -dx*vigstep, -dy*vigstep, vigstep, 1.0);
+
+    //
+    // Normalize to sum 1 
+    // (FIXME put this somewhere more general?)
+    //
+    double acc = 0.0;
+    for (int i = 0; i < nx_out * ny_out; i++)
+        acc += out[i];
+    for (int i = 0; i < nx_out * ny_out; i++)
+        out[i] /= acc;
+}
+
 
 // -------------------------------------------------------------------------------------------------
 
@@ -509,7 +619,7 @@ void FakePsfexPsf::poly_fit(double *coeffs, const double *data, const double *we
 			:sin(M_PI*x)*sin(M_PI/INTERPFAC*x)/(M_PI*M_PI/INTERPFAC*x*x))))
 
 
-// cut-and-paste from psfex with minor change
+// cut-and-paste from psfex with minor changes
 void vignet_resample_ymajor(const double *pix1, int w1, int h1, double *pix2, int w2, int h2, 
                             double dx, double dy, double step2, double stepi)
 {
