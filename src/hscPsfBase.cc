@@ -191,9 +191,8 @@ PTR(HscPsfBase::Image) HscPsfBase::doComputeImage(afw::geom::Point2D const &posi
     int n = 2*_nside + 1;
     std::vector<double> img(n*n);
 
-    // FIXME is this what I should be using?
-    int x0 = (int)(position.getX() - _nside);
-    int y0 = (int)(position.getY() - _nside);
+    int x0 = (int)(position.getX() - _nside + 0.5);
+    int y0 = (int)(position.getY() - _nside + 0.5);
     this->eval(n, n, (double)x0, (double)y0, &img[0], position.getX(), position.getY());
 
     PTR(Image) ret = boost::make_shared<Image> (n, n);
