@@ -140,6 +140,13 @@ FakePsfexPsf::FakePsfexPsf(CONST_PTR(HscCandidateSet) cs, CONST_PTR(FakePsfexPsf
 
     _contextoffset = base->_contextoffset;
     _contextscale = base->_contextscale;
+
+    _xmin = base->_xmin;
+    _xmax = base->_xmax;
+    _xmean = base->_xmean;
+    _ymin = base->_ymin;
+    _ymax = base->_ymax;
+    _ymean = base->_ymean;
 }
 
 
