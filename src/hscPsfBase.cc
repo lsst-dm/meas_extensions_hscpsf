@@ -283,7 +283,7 @@ double HscPsfBase::fit_basis_images(double *out_ampl, int nbf, int nxy, const do
 }
 
 
-// anonymous namespace of helper functions for HscPsfBase::lanczos_offset_2d()
+// anonymous namespace of helper functions for lanczos interpolation
 namespace {
     inline double lanczos_kernel(int order, double x)
     {
@@ -355,6 +355,38 @@ namespace {
         }
     }
 };   // anonymous namespace of helper functions for HscPsfBase::lanczos_offset_2d()
+
+
+// static member function
+double HscPsfBase::lanczos_interpolate_2d(int order, double x, double y, int nx, int ny, const double *f, 
+                                          int stride, double *scratch, bool zero_pad, bool normalize)
+{
+    int i0, i1, j0, j1;
+    set_lanczos_delimeters(order, x, nx, zero_pad, i0, i1);
+    set_lanczos_delimeters(order, y, ny, zero_pad, j0, j1);
+
+    double ksum = 0.0;
+    double ksum2 = 0.0;
+    double ret = 0.0;
+
+    for (int i = i0; i < i1; i++) {
+	double k = lanczos_kernel(order, x-i);
+	scratch[i-i0] = k;
+	ksum += k;
+    }
+
+    for (int j = j0; j < j1; j++) {
+	double k = lanczos_kernel(order, y-j);
+    	scratch[2*order + j-j0] = k;
+	ksum2 += k;
+    }
+
+    for (int i = i0; i < i1; i++)
+	for (int j = j0; j < j1; j++)
+	    ret += scratch[i-i0] * scratch[2*order + j-j0] * f[i*stride + j];
+
+    return (normalize && (i0 < i1) && (j0 < j1)) ? (ret/ksum/ksum2) : ret;
+}
 
 
 // static member function

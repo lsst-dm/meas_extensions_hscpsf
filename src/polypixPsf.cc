@@ -39,6 +39,34 @@ namespace lsst { namespace meas { namespace extensions { namespace hscpsf {
 #endif
 
 
+static void my_resample(const double *pix1, int w1, int h1, double *pix2, int w2, int h2,
+                        double dx, double dy, double step2, double step1)
+{
+    assert(step1 == 1.0);
+
+    const int order = 3;  // INTERPFAC
+
+    std::vector<double> scratch(4*order);
+
+    // Note integer division here!
+    // In my opinion, this is a bug in psfex, but we reproduce it here...
+    double x0 = (w1/2) - (w2/2)*step2 + dx;
+    double y0 = (h1/2) - (h2/2)*step2 + dy;
+
+    for (int i = 0; i < w2; i++) {
+        for (int j = 0; j < h2; j++) {
+	    double x = x0 + i*step2;
+	    double y = y0 + j*step2;
+
+	    if (x >= 0.0 && x <= w1-1 && y >= 0.0 && y <= h1-1)
+		pix2[i*h2+j] = HscPsfBase::lanczos_interpolate_2d(order, x, y, w1, h1, pix1, h1, &scratch[0], true, true);
+	    else
+		pix2[i*h2+j] = 0.0;
+	}
+    }
+}
+
+
 // private helper function for constructors
 void PolypixPsf::_construct(int spatialOrder, double fwhm, double backnoise2, double gain)
 {
@@ -144,9 +172,9 @@ void PolypixPsf::psf_make(double prof_accuracy)
         double dx = _current_xy[2*icand] - _xy0[2*icand] - 0.5*(double)(_nx-1);
         double dy = _current_xy[2*icand+1] - _xy0[2*icand+1] - 0.5*(double)(_ny-1);
 
-        vignet_resample_xmajor(&_im[icand*_nx*_ny], _nx, _ny,
-                               &image[icand*_psf_nx*_psf_ny], _psf_nx, _psf_ny,
-                               dx, dy, _psfstep, 1.0);   // FIXME note in psfex code, last arg is max(_psfstep,1.0)
+        my_resample(&_im[icand*_nx*_ny], _nx, _ny,
+                    &image[icand*_psf_nx*_psf_ny], _psf_nx, _psf_ny,
+                    dx, dy, _psfstep, 1.0);   // FIXME note in psfex code, last arg is max(_psfstep,1.0)
 
         for (int i = 0; i < _nx*_ny; i++)
             image[icand*_psf_nx*_psf_ny + i] /= _norm[icand];
@@ -348,9 +376,9 @@ void PolypixPsf::psf_makeresi(double prof_accuracy)
         this->psf_build(&loc[0], &pos[0]);
 
         // temporarily set vigresi = psf in vignette coordinates (not postmultiplied by flux)
-        vignet_resample_xmajor(&loc[0], _psf_nx, _psf_ny,
-                               &_vigresi[icand*_nx*_ny], _nx, _ny,
-                               -dx*vigstep, -dy*vigstep, vigstep, 1.0);
+        my_resample(&loc[0], _psf_nx, _psf_ny,
+                    &_vigresi[icand*_nx*_ny], _nx, _ny,
+                    -dx*vigstep, -dy*vigstep, vigstep, 1.0);
 
         // -------------------- fit flux --------------------
 
@@ -496,9 +524,9 @@ void PolypixPsf::eval(int nx_out, int ny_out, double x0, double y0, double *out,
     double dx = x - x0 - 0.5*(nx_out-1);
     double dy = y - y0 - 0.5*(ny_out-1);
 
-    vignet_resample_xmajor(&fullresIm[0], _psf_nx, _psf_ny,
-                           out, nx_out, ny_out,
-                           -dx*vigstep, -dy*vigstep, vigstep, 1.0);
+    my_resample(&fullresIm[0], _psf_nx, _psf_ny,
+                out, nx_out, ny_out,
+                -dx*vigstep, -dy*vigstep, vigstep, 1.0);
 
     //
     // Normalize to sum 1 

@@ -132,6 +132,13 @@ public:
     static double fit_basis_images(double *out_ampl, int nbf, int nxy, const double *iv, const double *im, const double *basis_images);   // returns residual chi^2
 
     //
+    // Static helper function for Lanczos interpolation
+    // Note: scratch should be a buffer of length 4*order
+    //
+    static double lanczos_interpolate_2d(int order, double x, double y, int nx, int ny, const double *f, 
+                                         int stride, double *scratch, bool zero_pad, bool normalize);
+
+    //
     // Static helper function: Given a grid of values defined at integer points (i,j), where (0 <= i < nx_in) and (0 <= j < ny_in)
     // this routine interpolates onto a grid defined at points (x0+i,y0+j), where (0 <= i < nx_out) and (0 <= j < ny_out)
     //
