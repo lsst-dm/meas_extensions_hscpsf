@@ -64,6 +64,7 @@ namespace lsst { namespace meas { namespace extensions { namespace hscpsf { } } 
 %shared_ptr(lsst::meas::extensions::hscpsf::HscSpatialModelPolynomial)
 
 %shared_ptr(lsst::meas::extensions::hscpsf::FakePsfexPsf);
+%shared_ptr(lsst::meas::extensions::hscpsf::PolypixPsf);
 
 %include "lsst/meas/extensions/hscpsf/hscPsf.h"
 %include "lsst/meas/extensions/hscpsf/psfexHacking.h"
