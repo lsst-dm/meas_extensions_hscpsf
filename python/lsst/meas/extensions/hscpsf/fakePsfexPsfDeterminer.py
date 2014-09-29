@@ -239,8 +239,10 @@ class FakePsfexPsfDeterminer(object):
 
         cs = hscpsfLib.HscCandidateSet(mask_bits, actualKernelSize, actualKernelSize)
 
+        xpos = []; ypos = []
         for i, psfCandidate in enumerate(psfCandidateList):
             source = psfCandidate.getSource()
+            xc, yc = source.getX(), source.getY()
 
             if fluxFlagName in source.schema and source.get(fluxFlagName):
                 continue
@@ -254,7 +256,7 @@ class FakePsfexPsfDeterminer(object):
             if flagKey is not None:
                 source.set(flagKey, True)
 
-            # xpos.append(xc); ypos.append(yc) # for QA
+            xpos.append(xc); ypos.append(yc) # for QA
 
         if cs.getNcand() == 0:
             raise RuntimeError("No good PSF candidates to pass to PSFEx")
@@ -285,7 +287,7 @@ class FakePsfexPsfDeterminer(object):
         psf.psf_make(0.01)
         psf.psf_clip()
 
-        if 1:
+        if 0:
             position = afwGeom.Point2D(2000.23, 1000.62)
 
             im0 = psf.doComputeImage(position, afwImage.Color())
@@ -312,7 +314,7 @@ class FakePsfexPsfDeterminer(object):
                 for j in xrange(im1.getHeight()):
                     print >>sys.stderr, '    doComputeKernelImage (%d,%d): %s' % (i,j,arr1[i,j])
 
-        raise RuntimeError('THE WORLD SHOULD PROBABLY BE DESTROYED NOW')
+        # raise RuntimeError('THE WORLD SHOULD PROBABLY BE DESTROYED NOW')
 
         xpos = np.array(xpos); ypos = np.array(ypos)
         numGoodStars = len(xpos)

@@ -112,7 +112,7 @@ FakePsfexPsf::FakePsfexPsf(CONST_PTR(HscCandidateSet) cs, int nside, int spatial
     _contextscale[0] = (_xmax - _xmin);
     _contextscale[1] = (_ymax - _ymin);    
 
-    if (1) {
+    if (0) {
         std::cerr << "FakePsfexPsf constructor: dumping context\n";
         for (int i = 0; i < _ncand; i++)
             std::cerr << "    FakePsfexPsf constructor: n=" << i << "  context=[ " 
@@ -194,7 +194,7 @@ void FakePsfexPsf::psf_make(double prof_accuracy)
         pos[2*icand+1] = (_current_xy[2*icand+1] - _contextoffset[1]) / _contextscale[1];
     }
 
-    if (1) {
+    if (0) {
         std::cerr << "psf_make(" << prof_accuracy << "): dumping vig/image/weight\n";
         for (int icand = 0; icand < _ncand; icand++) {
             // psfex sample->dx, sample->dy
@@ -249,7 +249,7 @@ void FakePsfexPsf::psf_make(double prof_accuracy)
             _comp[icoeff*npix + ipix] = coeff[icoeff];
     }
 
-    if (1) {
+    if (0) {
         std::cerr << "psf_make(" << prof_accuracy << "): dumping basis_functions\n";
         for (int icand = 0; icand < _ncand; icand++) {
             std::cerr << "  psf_make(" << prof_accuracy << "): ncand=" << icand << "  basis_functions = [";
@@ -259,7 +259,7 @@ void FakePsfexPsf::psf_make(double prof_accuracy)
         }
     }
 
-    if (1) {
+    if (0) {
         std::cerr << "psf_make(" << prof_accuracy << "): dumping polynomial coefficients\n";
         for (int ix = 0; ix < _psf_nx; ix++) {
             for (int iy = 0; iy < _psf_ny; iy++) {
@@ -391,7 +391,7 @@ void FakePsfexPsf::psf_clip()
         }
     }
             
-    if (1) {
+    if (0) {
         for (int ix = 0; ix < _psf_nx; ix++) {
             for (int iy = 0; iy < _psf_ny; iy++) {
                 std::cerr << "    psf_clip (ix,iy)=(" << ix << "," << iy << "):  [";
@@ -498,7 +498,7 @@ void FakePsfexPsf::psf_makeresi(double prof_accuracy)
         _chi2[icand] = (nchi2 > 1)? (chi2/(nchi2-1)) : chi2;
     }    
 
-    if (1) {
+    if (0) {
         for (int icand = 0; icand < _ncand; icand++)
             std::cerr << "    psf_makeresi(" << prof_accuracy << "): icand=" << icand << ": chi2=" << _chi2[icand] << std::endl;
     }
