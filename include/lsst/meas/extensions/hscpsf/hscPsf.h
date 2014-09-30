@@ -202,33 +202,16 @@ public:
 
     //
     // @out = output array of shape (_psf_nx, _psf_ny)
-    // @pos = input_array of shape (2,)
+    // @xy = input_array of shape (2,)
     //
-    void psf_build(double *loc, const double *pos) const;
-
+    // Note: the @xy coordinates are unscaled, in contrast to the identically-named routine in psfex
     //
-    // @basis = output array of shape (ncoeffs,)
-    // @pos = input array of shape (2,)
-    //
-    void poly_func(double *basis, const double *pos) const;
-
-    // 
-    // @basis = output array of shape (ncand, ncoeffs)
-    // @pos = input array of shape (ncand, 2)
-    //
-    void poly_eval_basis_functions(double *basis, const double *pos) const;
-
-    //
-    // @coeffs = output array of shape (ncoeffs,)
-    // @data = input array of shape (ncand,)
-    // @weights = input array of shape (ncand,)
-    // @basis = input array of shape (ncand, ncoeffs), probably computed using poly_eval_basis_functions()
-    //
-    void poly_fit(double *coeffs, const double *data, const double *weights, const double *basis, double regul) const;
+    void psf_build(double *out, const double *xy) const;
 
 protected:
     int _spatialOrder;
     int _ncoeffs;
+    CONST_PTR(HscSpatialModelBase) _spatialModel;
 
     double _fwhm;
     double _backnoise2;
@@ -239,8 +222,6 @@ protected:
     double _psfstep;         // FIXME look at psfex source and figure out the difference between pixstep and psfstep
 
     std::vector<double> _norm;           // shape (_ncand); psfex sample->norm
-    std::vector<double> _contextoffset;
-    std::vector<double> _contextscale;
 
     std::vector<double> _vigweight;      // shape (_ncand, _nx, _ny)
     std::vector<double> _comp;           // shape (_ncoeffs, _psf_nx, psf_ny)
@@ -250,6 +231,8 @@ protected:
     std::vector<double> _vigchi;         // shape (_ncand, _nx, _ny)    per-pixel contribution to chi^2
     std::vector<double> _chi2;           // shape (_ncand,)             reduced chi^2
 
+    CONST_PTR(HscSpatialModelBase) _spatial_model;
+
     virtual void eval(int nx_out, int ny_out, double x0, double y0, double *out, double x, double y) const;
 
 private:
@@ -258,14 +241,6 @@ private:
 
 
 extern double fast_median(double *arr, int n);
-
-// you probably want this one...
-extern void vignet_resample_xmajor(const double *pix1, int w1, int h1, double *pix2, int w2, int h2, 
-                                   double dx, double dy, double step2, double stepi);
-
-// ...not this one
-extern void vignet_resample_ymajor(const double *pix1, int w1, int h1, double *pix2, int w2, int h2, 
-                                   double dx, double dy, double step2, double stepi);
 
 
 class HscSplinePsfBase : public HscPsfBase {
@@ -461,14 +436,16 @@ public:
     virtual void eval(double *out, int ncand, const double *xy, int nfunc, const double *fcoeffs) const = 0;
     
     //
+    // This routine minimizes a function of the form 
+    //    sum_{i=1}^N (1/2) a_i p(x_i)^2 - b_i p(x_i)
+    // for a sequence of 2D points {x_1,...,x_N} and scalars {a_1,...,a_N} and {b_1,...,b_N}.
+    //
     // @out = 1D array of length ncoeffs
     // @xy = array of shape (ncand,2)
     // @a = 1D array of length ncand
     // @b = 1D array of length ncand
     //
-    // Note: this interfaces assumes no prior on the coefficients, and will need to change in order to implement kriging
-    //
-    virtual void optimize(double *out, int ncand, const double *xy, const double *a, const double *b) const = 0;
+    virtual void optimize(double *out, int ncand, const double *xy, const double *a, const double *b, double regul) const = 0;
 
     //
     // @pcas = array of shape (npca, npix)
@@ -488,7 +465,7 @@ public:
     //
     ndarray::Array<double,2,2> eval(const ndarray::Array<const double,2,2> &xy, const ndarray::Array<const double,2,2> &fcoeffs) const;
 
-    ndarray::Array<double,1,1> optimize(const ndarray::Array<const double,2,2> &xy, const ndarray::Array<const double,1,1> &a, const ndarray::Array<const double,1,1> &b) const;
+    ndarray::Array<double,1,1> optimize(const ndarray::Array<const double,2,2> &xy, const ndarray::Array<const double,1,1> &a, const ndarray::Array<const double,1,1> &b, double regul) const;
 
     void normalizePcaImages(const ndarray::Array<double,2,2> &pcas, const ndarray::Array<double,1,1> &ampl, const ndarray::Array<double,2,2> &sm) const;
 };
@@ -503,7 +480,29 @@ public:
     virtual int getNcoeffs() const;
 #if !defined(SWIG)
     virtual void eval(double *out, int ncand, const double *xy, int nfunc, const double *fcoeffs) const;
-    virtual void optimize(double *out, int ncand, const double *xy, const double *a, const double *b) const;
+    virtual void optimize(double *out, int ncand, const double *xy, const double *a, const double *b, double regul) const;
+#endif
+
+protected:
+    int _order;
+    int _ncoeffs;
+    double _xmin, _xmax;
+    double _ymin, _ymax;
+
+    void _eval_xypow_scaled(double *out, int ncand, const double *t) const;
+};
+
+
+class HscSpatialModelLegendrePolynomial : public HscSpatialModelBase {
+public:
+    HscSpatialModelLegendrePolynomial(int order, double xmin, double xmax, double ymin, double ymax);
+    virtual ~HscSpatialModelLegendrePolynomial() { }
+
+    // Devirtualize HscSpatialModelBase
+    virtual int getNcoeffs() const;
+#if !defined(SWIG)
+    virtual void eval(double *out, int ncand, const double *xy, int nfunc, const double *fcoeffs) const;
+    virtual void optimize(double *out, int ncand, const double *xy, const double *a, const double *b, double regul) const;
 #endif
 
 protected:

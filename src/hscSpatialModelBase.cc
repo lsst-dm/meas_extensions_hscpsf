@@ -97,7 +97,7 @@ ndarray::Array<double,2,2> HscSpatialModelBase::eval(const ndarray::Array<const 
 }
 
 
-ndarray::Array<double,1,1> HscSpatialModelBase::optimize(const ndarray::Array<const double,2,2> &xy, const ndarray::Array<const double,1,1> &a, const ndarray::Array<const double,1,1> &b) const
+ndarray::Array<double,1,1> HscSpatialModelBase::optimize(const ndarray::Array<const double,2,2> &xy, const ndarray::Array<const double,1,1> &a, const ndarray::Array<const double,1,1> &b, double regul) const
 {
     if (xy.getSize<1>() != 2)
         throw LSST_EXCEPT(pex::exceptions::InvalidParameterException, "xy argument to HscSpatialModelBase::optimize() must be an array of shape (N,2)");
@@ -109,7 +109,7 @@ ndarray::Array<double,1,1> HscSpatialModelBase::optimize(const ndarray::Array<co
     int ncand = xy.getSize<0>();
     ndarray::Array<double,1,1> out = ndarray::allocate(this->getNcoeffs());
 
-    this->optimize(out.getData(), ncand, xy.getData(), a.getData(), b.getData());
+    this->optimize(out.getData(), ncand, xy.getData(), a.getData(), b.getData(), regul);
     return out;
 }
 

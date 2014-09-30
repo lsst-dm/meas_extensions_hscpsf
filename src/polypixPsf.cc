@@ -47,10 +47,11 @@ void PolypixPsf::_construct(int spatialOrder, double fwhm, double backnoise2, do
 
     _spatialOrder = spatialOrder;
     _ncoeffs = ((spatialOrder+1) * (spatialOrder+2)) / 2;
+    _spatialModel = boost::make_shared<HscSpatialModelPolynomial>(_spatialOrder, _xmin, _xmax, _ymin, _ymax);
+
     _fwhm = fwhm;
     _backnoise2 = backnoise2;
     _gain = gain;
-
 
     if (_ncand <= _ncoeffs)
         throw LSST_EXCEPT(pex::exceptions::InvalidParameterException, "too few spatial candidates in PolypixPsf constructor");
@@ -59,8 +60,6 @@ void PolypixPsf::_construct(int spatialOrder, double fwhm, double backnoise2, do
     _psf_ny = _ny;
 
     _norm.resize(_ncand);
-    _contextoffset.resize(2, 0.0);   // note: allocated here, but initialized in constructor body
-    _contextscale.resize(2, 0.0);    // note: allocated here, but initialized in constructor body
     _vigweight.resize(_ncand * _nx * _ny);
     _comp.resize(_ncoeffs * _psf_nx * _psf_ny, 0.0);
     _vigresi.resize(_ncand * _nx * _ny, 0.0);
@@ -103,12 +102,6 @@ PolypixPsf::PolypixPsf(CONST_PTR(HscCandidateSet) cs, int nside, int spatialOrde
     : HscPsfBase(cs,nside)
 { 
     this->_construct(spatialOrder, fwhm, backnoise2, gain);
-    
-    // FIXME revisit
-    _contextoffset[0] = (_xmin + _xmax) / 2.0;
-    _contextoffset[1] = (_ymin + _ymax) / 2.0;
-    _contextscale[0] = (_xmax - _xmin);
-    _contextscale[1] = (_ymax - _ymin);    
 }
 
 
@@ -116,9 +109,6 @@ PolypixPsf::PolypixPsf(CONST_PTR(HscCandidateSet) cs, CONST_PTR(PolypixPsf) base
     : HscPsfBase(cs, base->_nside)
 {
     this->_construct(base->_spatialOrder, base->_fwhm, base->_backnoise2, base->_gain);
-
-    _contextoffset = base->_contextoffset;
-    _contextscale = base->_contextscale;
 
     _xmin = base->_xmin;
     _xmax = base->_xmax;
@@ -206,7 +196,6 @@ void PolypixPsf::psf_make(double prof_accuracy)
 
     std::vector<double> image(_ncand * _psf_nx * _psf_ny);
     std::vector<double> weight(_ncand * _psf_nx * _psf_ny);
-    std::vector<double> pos(_ncand * 2);
 
     for (int icand = 0; icand < _ncand; icand++) {
         // psfex sample->dx, sample->dy
@@ -229,26 +218,20 @@ void PolypixPsf::psf_make(double prof_accuracy)
 
             weight[icand*_nx*_ny + i] = norm2/noise2;
         }
-
-        pos[2*icand] = (_current_xy[2*icand] - _contextoffset[0]) / _contextscale[0];
-        pos[2*icand+1] = (_current_xy[2*icand+1] - _contextoffset[1]) / _contextscale[1];
     }
 
-    std::vector<double> basis(_ncand * _ncoeffs);
-    this->poly_eval_basis_functions(&basis[0], &pos[0]);
-
-    std::vector<double> pstack(_ncand);
-    std::vector<double> wstack(_ncand);
+    std::vector<double> a(_ncand);
+    std::vector<double> b(_ncand);
     std::vector<double> coeff(_ncoeffs);
     int npix = _psf_nx * _psf_ny;
 
     for (int ipix = 0; ipix < npix; ipix++) {
         for (int icand = 0; icand < _ncand; icand++) {
-            pstack[icand] = image[icand*npix + ipix];
-            wstack[icand] = weight[icand*npix + ipix];
+            a[icand] = weight[icand*npix + ipix];
+            b[icand] = weight[icand*npix + ipix] * image[icand*npix + ipix];
         }
 
-        this->poly_fit(&coeff[0], &pstack[0], &wstack[0], &basis[0], regul);
+        _spatialModel->optimize(&coeff[0], _ncand, &_current_xy[0], &a[0], &b[0], regul);
 
         for (int icoeff = 0; icoeff < _ncoeffs; icoeff++)
             _comp[icoeff*npix + ipix] = coeff[icoeff];
@@ -376,17 +359,18 @@ void PolypixPsf::psf_clip()
 }
 
 
-void PolypixPsf::psf_build(double *loc, const double *pos) const
+void PolypixPsf::psf_build(double *loc, const double *xy) const
 {
     int npix = _psf_nx * _psf_ny;
     memset(loc, 0, npix * sizeof(double));
 
-    std::vector<double> basis(_ncoeffs);
-    this->poly_func(&basis[0], pos);
-
+    // FIXME oops, _comp is transposed
+    std::vector<double> _tcomp(npix * _ncoeffs);
     for (int ic = 0; ic < _ncoeffs; ic++)
         for (int ipix = 0; ipix < npix; ipix++)
-            loc[ipix] += basis[ic] * _comp[ic*npix+ipix];
+            _tcomp[ipix*_ncoeffs+ic] = _comp[ic*npix+ipix];
+
+    _spatialModel->eval(loc, 1, xy, npix, &_tcomp[0]);
 }
 
 
@@ -394,8 +378,6 @@ void PolypixPsf::psf_makeresi(double prof_accuracy)
 {
     const bool accuflag = (prof_accuracy > 1.0/BIG);
 
-    std::vector<double> pos(2);
-    std::vector<double> basis(_ncoeffs);
     std::vector<double> loc(_psf_nx * _psf_ny);
     std::vector<double> dresi(_nx*_ny, 0.0);
 
@@ -407,11 +389,7 @@ void PolypixPsf::psf_makeresi(double prof_accuracy)
         double dx = _current_xy[2*icand] - _xy0[2*icand] - 0.5*(double)(_nx-1);
         double dy = _current_xy[2*icand+1] - _xy0[2*icand+1] - 0.5*(double)(_ny-1);
 
-        pos[0] = (_current_xy[2*icand] - _contextoffset[0]) / _contextscale[0];
-        pos[1] = (_current_xy[2*icand+1] - _contextoffset[1]) / _contextscale[1];
-
-        this->poly_func(&basis[0], &pos[0]);
-        this->psf_build(&loc[0], &pos[0]);
+        this->psf_build(&loc[0], &_current_xy[2*icand]);
 
         // temporarily set vigresi = psf in vignette coordinates (not postmultiplied by flux)
         downsample(&_vigresi[icand*_nx*_ny], _nx, _ny, &loc[0], dx, dy);
@@ -469,91 +447,16 @@ void PolypixPsf::psf_makeresi(double prof_accuracy)
 // -------------------------------------------------------------------------------------------------
 
 
-void PolypixPsf::poly_func(double *basis, const double *pos) const
-{
-    double x = pos[0];
-    double y = pos[1];
-
-    std::vector<double> xpow(_spatialOrder+1);
-    std::vector<double> ypow(_spatialOrder+1);
-
-    xpow[0] = ypow[0] = 1.0;
-    for (int i = 0; i < _spatialOrder; i++) {
-        xpow[i+1] = xpow[i] * x;
-        ypow[i+1] = ypow[i] * y;
-    }
-
-    int outpos = 0;
-    for (int iy = 0; iy <= _spatialOrder; iy++)
-        for (int ix = 0; ix <= _spatialOrder-iy; ix++)
-            basis[outpos++] = xpow[ix] * ypow[iy];
-}
-
-
-// FIXME call poly_func() in loop?
-void PolypixPsf::poly_eval_basis_functions(double *basis, const double *pos) const
-{
-    std::vector<double> xpow(_spatialOrder+1);
-    std::vector<double> ypow(_spatialOrder+1);
-    int outpos = 0;
-
-    for (int icand = 0; icand < _ncand; icand++) {        
-        double x = pos[2*icand];
-        double y = pos[2*icand+1];
-
-        xpow[0] = ypow[0] = 1.0;
-        for (int i = 0; i < _spatialOrder; i++) {
-            xpow[i+1] = xpow[i] * x;
-            ypow[i+1] = ypow[i] * y;
-        }
-
-        for (int iy = 0; iy <= _spatialOrder; iy++)
-            for (int ix = 0; ix <= _spatialOrder-iy; ix++)
-                basis[outpos++] = xpow[ix] * ypow[iy];
-    }
-}
-
-
-void PolypixPsf::poly_fit(double *coeffs, const double *data, const double *weights, const double *basis, double regul) const
-{
-    Eigen::MatrixXd alpha(_ncoeffs, _ncoeffs);
-    Eigen::VectorXd beta(_ncoeffs);
-
-    for (int i = 0; i < _ncoeffs; i++) {
-        for (int j = 0; j <= i; j++) {
-            double t = 0.0;
-            for (int icand = 0; icand < _ncand; icand++)
-                t += weights[icand] * basis[icand*_ncoeffs+i] * basis[icand*_ncoeffs+j];
-            alpha(i,j) = alpha(j,i) = t;
-        }
-
-        double t = 0.0;
-        for (int icand = 0; icand < _ncand; icand++)
-            t += weights[icand] * basis[icand*_ncoeffs+i] * data[icand];
-        beta(i) = t;
-    }
-
-    if (regul > 0.0) {
-        for (int i = 0; i < _ncoeffs; i++)
-            alpha(i,i) += regul;
-    }
-
-    Eigen::VectorXd ainv_b = alpha.llt().solve(beta);
-
-    for (int i = 0; i < _ncoeffs; i++)
-        coeffs[i] = ainv_b(i);
-}
-
 
 // follows PsfexPsf::_doComputeImage() in meas_extensions_psfex
 void PolypixPsf::eval(int nx_out, int ny_out, double x0, double y0, double *out, double x, double y) const
 {
-    double pos[2];
-    pos[0] = (x - _contextoffset[0]) / _contextscale[0];
-    pos[1] = (y - _contextoffset[1]) / _contextscale[1];
+    double xy[2];
+    xy[0] = x;
+    xy[1] = y;
 
     std::vector<double> fullresIm(_psf_nx * _psf_ny);      
-    psf_build(&fullresIm[0], pos);
+    psf_build(&fullresIm[0], xy);
 
     double dx = x - x0 - 0.5*(nx_out-1);
     double dy = y - y0 - 0.5*(ny_out-1);

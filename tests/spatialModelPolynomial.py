@@ -43,8 +43,14 @@ import lsst.meas.extensions.hscpsf.hscpsfLib as hscpsfLib
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 
-class SpatialModelPolynomialTestCase(unittest.TestCase):
-    """A test case for hscpsfLib.HscSpatialModelPolynomial."""
+class SpatialModelTestBase(unittest.TestCase):
+    """
+    Base class for testing spatial models.
+
+    Subclass must define
+       self.construct_sm()      -> initializes self.sm to a random(?) spatial model
+       self.eval2(xy, fcoeffs)  -> same semantics as self.sm.eval(), for comparison
+    """
 
     def setUp(self):
         pass
@@ -93,41 +99,19 @@ class SpatialModelPolynomialTestCase(unittest.TestCase):
 
     def _test_eval(self):
         fcoeffs = rand.standard_normal(size=(self.nfunc, self.ncoeffs))
-        eval0 = self.sm.eval(self.xy, fcoeffs)
-        
-        pxmat = np.zeros((self.ncand, self.order+1))
-        pymat = np.zeros((self.ncand, self.order+1))
+        eval1 = self.sm.eval(self.xy, fcoeffs)
+        eval2 = self.eval2(self.xy, fcoeffs)
 
-        for i in xrange(self.order+1):
-            coeffs = np.zeros(i+1)
-            coeffs[-1] = 1
-
-            p = np.polynomial.legendre.Legendre(coeffs, domain=(self.xmin,self.xmax))
-            pxmat[:,i] = p(self.xy[:,0])
-
-            p = np.polynomial.legendre.Legendre(coeffs, domain=(self.ymin,self.ymax))
-            pymat[:,i] = p(self.xy[:,1])
-
-        smat = np.zeros((self.ncand, self.ncoeffs))
-                
-        m = 0
-        for n in xrange(self.order+1):
-            for i in xrange(n+1):
-                smat[:,m] = pxmat[:,n-i] * pymat[:,i]
-                m += 1
-                
-        assert m == self.ncoeffs
-
-        eval1 = np.dot(smat, np.transpose(fcoeffs))
         self.assertTrue(eval1.shape == (self.ncand, self.nfunc))
-        self.assertLess(np.max(np.abs(eval0-eval1)), 1.0e-12)
+        self.assertTrue(eval2.shape == (self.ncand, self.nfunc))
+        self.assertLess(np.max(np.abs(eval1-eval2)), 1.0e-12)
 
 
     def _test_optimize(self):
         a = rand.uniform(low=1.0, high=2.0, size=self.ncand)
         b = rand.standard_normal(size=self.ncand)
 
-        opt_coeffs = self.sm.optimize(self.xy, a, b)
+        opt_coeffs = self.sm.optimize(self.xy, a, b, 0.0)
 
         grad = self._eval_chi2_gradient(a, b, opt_coeffs)
         self.assertLess(np.sum(grad**2)**0.5, 1.0e-10)
@@ -149,8 +133,7 @@ class SpatialModelPolynomialTestCase(unittest.TestCase):
         
 
     def test_spatial_model_polynomial(self):
-        for order in xrange(1,10):
-            self.order = order
+        for n in xrange(1,50):
             self.ncand = rand.randint(150, 200)
             self.nfunc = rand.randint(1, 3)
             self.npca = rand.randint(1, 4)
@@ -164,12 +147,72 @@ class SpatialModelPolynomialTestCase(unittest.TestCase):
             self.xy[:,0] = rand.uniform(low=self.xmin, high=self.xmax, size=self.ncand)
             self.xy[:,1] = rand.uniform(low=self.ymin, high=self.ymax, size=self.ncand)
 
-            self.sm = hscpsfLib.HscSpatialModelPolynomial(self.order, self.xmin, self.xmax, self.ymin, self.ymax)
+            self.construct_sm()
             self.ncoeffs = self.sm.getNcoeffs()
 
             self._test_eval()
             self._test_optimize()
             self._test_normalize()
+
+
+class SpatialModelPolynomialTestCase(SpatialModelTestBase):
+    def construct_sm(self):
+        self.order = rand.randint(1,5)
+        self.sm = hscpsfLib.HscSpatialModelPolynomial(self.order, self.xmin, self.xmax, self.ymin, self.ymax)
+
+
+    def eval2(self, xy, fcoeffs):
+        assert xy.shape == (self.ncand, 2)
+        assert fcoeffs.shape == (self.nfunc, self.ncoeffs)
+
+        ret = np.zeros((self.ncand, self.nfunc))
+        tx = (xy[:,0] - self.xmin) / (self.xmax - self.xmin) - 0.5
+        ty = (xy[:,1] - self.ymin) / (self.ymax - self.ymin) - 0.5
+
+        ic = 0
+        for iy in xrange(self.order+1):
+            for ix in xrange(self.order-iy+1):
+                ret += np.outer(tx**ix * ty**iy, fcoeffs[:,ic])
+                ic += 1
+
+        return ret
+
+
+class SpatialModelLegendrePolynomialTestCase(SpatialModelTestBase):
+    def construct_sm(self):
+        self.order = rand.randint(1,5)
+        self.sm = hscpsfLib.HscSpatialModelLegendrePolynomial(self.order, self.xmin, self.xmax, self.ymin, self.ymax)
+
+
+    def eval2(self, xy, fcoeffs):
+        assert xy.shape == (self.ncand, 2)
+        assert fcoeffs.shape == (self.nfunc, self.ncoeffs)
+
+        pxmat = np.zeros((self.ncand, self.order+1))
+        pymat = np.zeros((self.ncand, self.order+1))
+
+        for i in xrange(self.order+1):
+            coeffs = np.zeros(i+1)
+            coeffs[-1] = 1
+
+            p = np.polynomial.legendre.Legendre(coeffs, domain=(self.xmin,self.xmax))
+            pxmat[:,i] = p(xy[:,0])
+
+            p = np.polynomial.legendre.Legendre(coeffs, domain=(self.ymin,self.ymax))
+            pymat[:,i] = p(xy[:,1])
+
+        smat = np.zeros((self.ncand, self.ncoeffs))
+                
+        m = 0
+        for n in xrange(self.order+1):
+            for i in xrange(n+1):
+                smat[:,m] = pxmat[:,n-i] * pymat[:,i]
+                m += 1
+                
+        assert m == self.ncoeffs
+
+        return np.dot(smat, np.transpose(fcoeffs))
+
 
 
 #-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
@@ -181,6 +224,7 @@ def suite():
 
     suites = []
     suites += unittest.makeSuite(SpatialModelPolynomialTestCase)
+    suites += unittest.makeSuite(SpatialModelLegendrePolynomialTestCase)
     return unittest.TestSuite(suites)
 
 def run(shouldExit=False):

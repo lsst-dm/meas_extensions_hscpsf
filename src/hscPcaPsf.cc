@@ -153,7 +153,7 @@ void HscPcaPsf::_optimize_spatial_model_and_update()
 	}
 
         std::vector<double> dcoeffs(_sm_ncoeffs);
-	_spatial_model->optimize(&dcoeffs[0], _ncand, &_initial_xy[0], &a[0], &b[0]);
+	_spatial_model->optimize(&dcoeffs[0], _ncand, &_initial_xy[0], &a[0], &b[0], 0.0);
 
         for (int i = 0; i < _sm_ncoeffs; i++)
             _sm_coeffs[ism*_sm_ncoeffs + i] += dcoeffs[i];

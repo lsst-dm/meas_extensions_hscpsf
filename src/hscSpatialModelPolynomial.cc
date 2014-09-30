@@ -31,10 +31,10 @@ namespace lsst { namespace meas { namespace extensions { namespace hscpsf {
 
 //
 // Note: ordering of coefficients is
-//   P_0(x)*P_0(y)  
-//   P_1(x)*P_0(y)  P_0(x)*P_1(x)
-//       ...
-//   P_N(x)*P_0(y)  P_{N-1}(x)*P_1(y)  ...  P_0(x)*P_N(y)
+//   1   x   x^2  ...  x^{N-1} x^N
+//   y  xy   x^2y ... x^{N-1}y
+//      ...
+//   x^N
 //
 HscSpatialModelPolynomial::HscSpatialModelPolynomial(int order, double xmin, double xmax, double ymin, double ymax)
     : _order(order), _xmin(xmin), _xmax(xmax), _ymin(ymin), _ymax(ymax)
@@ -53,43 +53,46 @@ int HscSpatialModelPolynomial::getNcoeffs() const
 }
 
 
-// virtual
+//
+// @out = array of shape (ncand,nfunc)
+// @xy = array of shape (ncand,2)
+// @fcoeffs = array of shape (nfunc,ncoeffs)
+//
 void HscSpatialModelPolynomial::eval(double *out, int ncand, const double *xy, int nfunc, const double *fcoeffs) const
 {
     if ((ncand <= 0) || (nfunc <= 0) || (xy == NULL) || (out == NULL) || (fcoeffs == NULL))
         throw LSST_EXCEPT(pex::exceptions::InvalidParameterException, "invalid parameters to HscSpatialModelPolynomial::eval()");
 
-    std::vector<double> pl((_order+1) * ncand * 2);    // shape (order+1,ncand,2)
-    _eval_pl_scaled(&pl[0], ncand, xy);
-    
-    Eigen::VectorXd px(_order+1);
-    Eigen::VectorXd py(_order+1);
-    Eigen::MatrixXd c(_order+1, _order+1);
+    std::vector<double> xypow((_order+1) * ncand * 2);    // shape (order+1,ncand,2)
+    this->_eval_xypow_scaled(&xypow[0], ncand, xy);
 
+    // FIXME (low priority) this loop could be rewritten as an Eigen matrix multiply for slightly better speed
     for (int icand = 0; icand < ncand; icand++) {
-        c.setZero();
+        for (int ifunc = 0; ifunc < nfunc; ifunc++) {
+            double p = 0.0;
 
-	for (int i = 0; i <= _order; i++) {
-	    px(i) = pl[(2*ncand)*i + 2*icand];
-	    py(i) = pl[(2*ncand)*i + 2*icand + 1];
-	}
+            int ic = 0;
+            for (int iy = 0; iy <= _order; iy++) {
+                for (int ix = 0; ix <= _order - iy; ix++) {
+                    p += fcoeffs[ifunc*_ncoeffs + ic] * xypow[ix*(2*ncand)+2*icand] * xypow[iy*(2*ncand)+2*icand+1];
+                    ic++;
+                }
+            }
 
-	int icoeff = 0;
-	for (int ifunc = 0; ifunc < nfunc; ifunc++) {
-	    for (int n = 0; n <= _order; n++)
-		for (int i = 0; i <= n; i++)
-		    c(n-i,i) = fcoeffs[icoeff++];
-
-	    out[icand*nfunc + ifunc] = px.dot(c * py);
-	}
-
-	assert(icoeff == nfunc * _ncoeffs);   // just checking
+            assert(ic == _ncoeffs);   // just checking!
+            out[icand*nfunc + ifunc] = p;
+        }
     }
 }
 
-
-// virtual 
-void HscSpatialModelPolynomial::optimize(double *out, int ncand, const double *xy, const double *a, const double *b) const
+                
+//
+// @out = 1D array of length ncoeffs
+// @xy = array of shape (ncand,2)
+// @a = 1D array of length ncand
+// @b = 1D array of length ncand
+//
+void HscSpatialModelPolynomial::optimize(double *out, int ncand, const double *xy, const double *a, const double *b, double regul) const
 {
     if ((a == NULL) || (b == NULL) || (xy == NULL) || (out == NULL))
         throw LSST_EXCEPT(pex::exceptions::InvalidParameterException, "null pointer passed to HscSpatialModelPolynomial::optimize()");
@@ -99,11 +102,8 @@ void HscSpatialModelPolynomial::optimize(double *out, int ncand, const double *x
     Eigen::VectorXd bmodel(_ncoeffs);
     Eigen::MatrixXd tmodel(ncand, _ncoeffs);
 
-    std::vector<double> pl((_order+1) * ncand * 2);    // shape (order+1,ncand,2)
-    _eval_pl_scaled(&pl[0], ncand, xy);
-
-    std::vector<double> plx(_order+1);
-    std::vector<double> ply(_order+1);
+    std::vector<double> xypow((_order+1) * ncand * 2);    // shape (order+1,ncand,2)
+    this->_eval_xypow_scaled(&xypow[0], ncand, xy);
 
     bmodel.setZero();
 
@@ -113,53 +113,30 @@ void HscSpatialModelPolynomial::optimize(double *out, int ncand, const double *x
 
         double sqrta = std::sqrt(a[icand]);
 
-	for (int i = 0; i <= _order; i++) {
-	    plx[i] = pl[(2*ncand)*i + 2*icand];
-	    ply[i] = pl[(2*ncand)*i + 2*icand + 1];
-	}
-
-	int icoeff = 0;
-	for (int n = 0; n <= _order; n++) {
-	    for (int i = 0; i <= n; i++) {
-		bmodel(icoeff) += b[icand] * plx[n-i] * ply[i];
-                tmodel(icand, icoeff) = sqrta * plx[n-i] * ply[i];
-                icoeff++;
+        int ic = 0;
+        for (int iy = 0; iy <= _order; iy++) {
+            for (int ix = 0; ix <= _order - iy; ix++) {
+                double t = xypow[ix*(2*ncand)+2*icand] * xypow[iy*(2*ncand)+2*icand+1];
+                tmodel(icand,ic) = sqrta * t;
+                bmodel(ic) += b[icand] * t;
+                ic++;
             }
         }
 
-	assert(icoeff == _ncoeffs);   // just checking!
+        assert(ic == _ncoeffs);   // just checking!
     }
 
     Eigen::MatrixXd amodel = tmodel.transpose() * tmodel;
+
+    if (regul > 0.0) {
+        for (int i = 0; i < _ncoeffs; i++)
+            amodel(i,i) += regul;
+    }
+
     Eigen::VectorXd ainv_b = amodel.llt().solve(bmodel);
 
     for (int i = 0; i < _ncoeffs; i++)
         out[i] = ainv_b(i);
-}
-
-
-//
-// @out = array of shape (order+1, ncand)
-// @t = 1D array of length ncand
-//
-void HscSpatialModelPolynomial::_eval_pl_unscaled(double *out, int ncand, const double *t) const
-{
-    for (int i = 0; i < ncand; i++)
-	out[i] = 1.0;
-
-    if (_order == 0)
-	return;
-
-    for (int i = 0; i < ncand; i++)
-	out[ncand+i] = t[i];
-
-    for (int l = 2; l <= _order; l++) {
-	double alpha = (double)(2*l-1) / (double)l;
-	double beta = (double)(l-1) / (double)l;
-
-	for (int i = 0; i < ncand; i++)
-	    out[l*ncand+i] = alpha * t[i] * out[(l-1)*ncand+i] - beta * out[(l-2)*ncand+i];
-    }
 }
 
 
@@ -169,17 +146,22 @@ void HscSpatialModelPolynomial::_eval_pl_unscaled(double *out, int ncand, const 
 //
 // FIXME: this routine should include range checking
 //
-void HscSpatialModelPolynomial::_eval_pl_scaled(double *out, int ncand, const double *xy) const
+void HscSpatialModelPolynomial::_eval_xypow_scaled(double *out, int ncand, const double *xy) const
 {
     assert((out != NULL) && (xy != NULL) && (ncand > 0));
 
     std::vector<double> t(2 * ncand);
     for (int i = 0; i < ncand; i++) {
-	t[2*i] = 2.0 * (xy[2*i]-_xmin) / (_xmax-_xmin) - 1.0;
-	t[2*i+1] = 2.0 * (xy[2*i+1]-_ymin) / (_ymax-_ymin) - 1.0;
+	t[2*i] = (xy[2*i]-_xmin) / (_xmax-_xmin) - 0.5;
+	t[2*i+1] = (xy[2*i+1]-_ymin) / (_ymax-_ymin) - 0.5;
     }
 
-    _eval_pl_unscaled(out, 2*ncand, &t[0]);
+    for (int i = 0; i < 2*ncand; i++)
+        out[i] = 1.0;
+
+    for (int ic = 1; ic <= _order; ic++)
+        for (int i = 0; i < 2*ncand; i++)
+            out[ic*(2*ncand) + i] = t[i] * out[(ic-1)*(2*ncand) + i];
 }
 
 

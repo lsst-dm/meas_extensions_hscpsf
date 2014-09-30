@@ -60,8 +60,9 @@ namespace lsst { namespace meas { namespace extensions { namespace hscpsf { } } 
 %shared_ptr(lsst::meas::extensions::hscpsf::HscPcaPsfNoSM);
 %shared_ptr(lsst::meas::extensions::hscpsf::HscPcaPsf);
 
-%shared_ptr(lsst::meas::extensions::hscpsf::HscSpatialModelBase)
-%shared_ptr(lsst::meas::extensions::hscpsf::HscSpatialModelPolynomial)
+%shared_ptr(lsst::meas::extensions::hscpsf::HscSpatialModelBase);
+%shared_ptr(lsst::meas::extensions::hscpsf::HscSpatialModelPolynomial);
+%shared_ptr(lsst::meas::extensions::hscpsf::HscSpatialModelLegendrePolynomial);
 
 %shared_ptr(lsst::meas::extensions::hscpsf::FakePsfexPsf);
 %shared_ptr(lsst::meas::extensions::hscpsf::PolypixPsf);
