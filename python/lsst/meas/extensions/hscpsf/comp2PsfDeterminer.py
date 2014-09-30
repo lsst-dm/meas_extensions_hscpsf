@@ -56,6 +56,7 @@ class Comp2PsfDeterminer(object):
     def determinePsf(self, exposure, psfCandidateList, metadata=None, flagKey=None):
         xsrc = np.array([ c.getSource().getX() for c in psfCandidateList ])
         ysrc = np.array([ c.getSource().getY() for c in psfCandidateList ])
+        status0 = [ c.getStatus() for c in psfCandidateList ]
         
         # These are (x,y) values where the psfs will be compared
         xvec = np.linspace(np.min(xsrc)+16.32, np.max(xsrc)-19.77, 5)
@@ -63,17 +64,18 @@ class Comp2PsfDeterminer(object):
 
         print '\nComp2PsfDeterminer: starting first psf run (%s)\n' % self.config.psfName1
 
-        save_status = [ cand.getStatus() for cand in psfCandidateList ]
         determiner1 = self.determiner_class1(self.determiner_config1)
         (psf1, psfCellSet1) = determiner1.determinePsf(exposure, psfCandidateList, metadata, flagKey=None)
+        bad1 = [ i for (i,c) in enumerate(psfCandidateList) if (c.getStatus() == afwMath.SpatialCellCandidate.BAD) ]
 
         print '\nComp2PsfDeterminer: starting second psf run (%s)\n' % self.config.psfName2
 
-        for (c,s) in zip(psfCandidateList, save_status):
+        for (c,s) in zip(psfCandidateList, status0):
             c.setStatus(s)
 
         determiner2 = self.determiner_class2(self.determiner_config2)
         (psf2, psfCellSet2) = determiner2.determinePsf(exposure, psfCandidateList, metadata, flagKey=None)
+        bad2 = [ i for (i,c) in enumerate(psfCandidateList) if (c.getStatus() == afwMath.SpatialCellCandidate.BAD) ]
 
         print '\nComp2PsfDeterminer: table of comparison values follows'
 
@@ -89,8 +91,13 @@ class Comp2PsfDeterminer(object):
                                     psf1.doComputeKernelImage(afwGeom.Point2D(x,y), afwImage.Color()),
                                     psf2.doComputeKernelImage(afwGeom.Point2D(x,y), afwImage.Color()))
 
+        print '\nComp2PsfDeterminer: the following candidates were marked bad by %s: %s' % (self.config.psfName1, bad1)
+        print 'Comp2PsfDeterminer: the following candidates were marked bad by %s: %s\n' % (self.config.psfName2, bad2)
 
-        return (psf1, psfCellSet1)
+        if bad1 != bad2:
+            print '   !!! WARNING the two sets of bad candidates differ !!!\n'
+
+        return (psf2, psfCellSet2)
 
 
     def compare_images(self, label, im1, im2):

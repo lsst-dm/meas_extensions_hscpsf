@@ -240,9 +240,6 @@ private:
 };
 
 
-extern double fast_median(double *arr, int n);
-
-
 class HscSplinePsfBase : public HscPsfBase {
 public:
     HscSplinePsfBase(CONST_PTR(HscCandidateSet) cs, int nr, double dr);

@@ -323,7 +323,7 @@ PTR(HscCandidateSet) FakePsfexPsf::psf_clean(double prof_accuracy)
     // Drop candidates which exceed the chi^2 threshold, the straightforward way
     //
     for (int icand = 0; icand < _ncand; icand++) {
-        if (_chi2[icand] <= chi2max) {
+        if (_chi2[icand] > chi2max) {
             std::cerr << "psf_clean(" << prof_accuracy << "): dropped candidate " 
                       << icand << "/" << _ncand << " (chi2=" << _chi2[icand] << ")" << std::endl;
         }

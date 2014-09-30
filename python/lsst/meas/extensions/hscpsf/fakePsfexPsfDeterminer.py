@@ -287,6 +287,15 @@ class FakePsfexPsfDeterminer(object):
         psf.psf_make(0.01)
         psf.psf_clip()
 
+        # The next 2 loops mark bad candidates
+        bad = np.ones(len(psfCandidateList), dtype=bool)
+        for icand in xrange(cs.getNcand()):
+            bad[cs.getId(icand)] = False
+
+        for i in xrange(len(psfCandidateList)):
+            status = afwMath.SpatialCellCandidate.BAD if bad[i] else afwMath.SpatialCellCandidate.UNKNOWN
+            psfCandidateList[i].setStatus(status)
+
         if 0:
             position = afwGeom.Point2D(2000.23, 1000.62)
 

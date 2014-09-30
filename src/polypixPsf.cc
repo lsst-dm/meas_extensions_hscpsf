@@ -27,7 +27,6 @@
 #include <cstring>
 #include "lsst/meas/extensions/hscpsf/hscPsf.h"
 
-#define EPS 1.0e-4
 #define BIG 1.0e30
 
 static inline double square(double x) { return x*x; }
@@ -247,78 +246,47 @@ PTR(HscCandidateSet) PolypixPsf::psf_clean(double prof_accuracy)
     for (int icand = 0; icand < _ncand; icand++)
         chi[icand] = sqrt(_chi2[icand]);
 
+    std::sort(chi.begin(), chi.end());
+    int lo = 0;
+    int hi = _ncand;
+
+    double chimean, chisig, chimed;
+    double chisig1 = 0.0;   // used to save value from previous iteration
+
+    //
     // Produce k-sigma-clipped statistics
-    double locut = -BIG;
-    double hicut = BIG;
-    double chisig = BIG;
-    int n = _ncand;
-
+    //
     for (int iter = 0; iter < 100; iter++) {
-        double chimed = fast_median(&chi[0], n);
-        double chimean = 0.0;
-        double chivar = 0.0;
-
-        int n2 = 0;
-        for (int i = 0; i < n; i++) {
-            if (chi[i] > locut && chi[i] < hicut) {
-                chimean += chi[i];
-                chivar += square(chi[i]);
-                chi[n2++] = chi[i];
-            }
+        chimean = chisig = 0.0;
+        for (int i = lo; i < hi; i++) {
+            chimean += chi[i];
+            chisig += chi[i]*chi[i];
         }
 
-        double chisig1 = chisig;
-        n = n2;
+        int n = hi-lo;
+        chimean /= n;
+        chisig = sqrt((chisig-chimean*chimean*n) / std::max(n-1,1));
+        chimed = (n % 2) ? chi[lo+n/2] : (chi[lo+n/2-1] + chi[lo+n/2])/2.0;
 
-        chimean /= (double)n;
-        chisig = sqrt((chivar-chimean*chimean*n) / std::max(n-1,1));
-        locut = chimed - 3.0*chisig;
-        hicut = chimed + 3.0*chisig;
+        // STL binary search boilerplate
+        lo = std::distance(chi.begin(), std::upper_bound(chi.begin(), chi.end(), chimed-3*chisig));
+        hi = std::distance(chi.begin(), std::upper_bound(chi.begin(), chi.end(), chimed+3*chisig));
+        assert(lo < hi);
     
-        if (chisig < 0.1 || fabs(chisig/chisig1-1.0) <= EPS)
+        if (chisig < 0.1)
             break;
-    }
+        if (chisig1 > 0.0 && (fabs(chisig/chisig1-1.0) <= 1.0e-4))
+            break;
 
-    double chi2max = square(hicut);
-    std::cerr << "psf_clean(" << prof_accuracy << "): chi2max=" << chi2max << std::endl;
+        chisig1 = chisig;
+    }
 
     PTR(HscCandidateSet) ret = boost::make_shared<HscCandidateSet>(_cs->getMaskBits(), _nx, _ny);
+    double chi2max = (chimed + 3*chisig) * (chimed + 3*chisig);
 
-#if 0
-    //
-    // Drop candidates which exceed the chi^2 threshold, the straightforward way
-    //
-    for (int icand = 0; icand < _ncand; icand++) {
-        if (_chi2[icand] <= chi2max) {
-            std::cerr << "psf_clean(" << prof_accuracy << "): dropped candidate " 
-                      << icand << "/" << _ncand << " (chi2=" << _chi2[icand] << ")" << std::endl;
-        }
-        else
+    for (int icand = 0; icand < _ncand; icand++)
+        if (_chi2[icand] <= chi2max)
             ret->add(_cs, icand);
-    }
-#else
-    //
-    // Drop candidates which exceed the chi^2 threshold, with psfex ordering convention
-    //
-    std::vector<int> ix_map(_ncand);
-    n = _ncand;
-
-    for (int i = 0; i < n; i++)
-        ix_map[i] = i;
-
-    for (int i = 0; i < n; ) {
-        if (_chi2[ix_map[i]] > chi2max) {
-            std::cerr << "psf_clean(" << prof_accuracy << "): dropped candidate " 
-                      << ix_map[i] << "/" << _ncand << " (chi2=" << _chi2[ix_map[i]] << ")" << std::endl;
-            std::swap(ix_map[i], ix_map[n-1]);
-            n--;
-        }
-        else {
-            ret->add(_cs, ix_map[i]);
-            i++;
-        }
-    }
-#endif
 
     return ret;
 }
@@ -326,9 +294,6 @@ PTR(HscCandidateSet) PolypixPsf::psf_clean(double prof_accuracy)
 
 void PolypixPsf::psf_clip()
 {
-    // for debug output, see below
-    std::vector<double> comp0 = _comp;
-
     double xc = (double)(_psf_nx/2);
     double yc = (double)(_psf_ny/2);
     double rmax2 = std::min(xc,yc) + 0.5;

@@ -287,7 +287,14 @@ class PolypixPsfDeterminer(object):
         psf.psf_make(0.01)
         psf.psf_clip()
 
-        # raise RuntimeError('THE WORLD SHOULD PROBABLY BE DESTROYED NOW')
+        # The next 2 loops mark bad candidates
+        bad = np.ones(len(psfCandidateList), dtype=bool)
+        for icand in xrange(cs.getNcand()):
+            bad[cs.getId(icand)] = False
+
+        for i in xrange(len(psfCandidateList)):
+            status = afwMath.SpatialCellCandidate.BAD if bad[i] else afwMath.SpatialCellCandidate.UNKNOWN
+            psfCandidateList[i].setStatus(status)
 
         xpos = np.array(xpos); ypos = np.array(ypos)
         numGoodStars = len(xpos)
