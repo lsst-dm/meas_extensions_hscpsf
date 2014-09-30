@@ -191,6 +191,9 @@ public:
     PolypixPsf(CONST_PTR(HscCandidateSet) cs, int nside, int spatialOrder, double fwhm, double backnoise2, double gain);
     PolypixPsf(CONST_PTR(HscCandidateSet) cs, CONST_PTR(PolypixPsf) base);
 
+    void downsample(double *out, int nx_out, int ny_out, const double *in, double dx, double dy) const;
+    void upsample(double *out, const double *in, double dx, double dy) const;
+
     void psf_make(double prof_accuracy);
     void psf_makeresi(double prof_accuracy);
     void psf_clip();
