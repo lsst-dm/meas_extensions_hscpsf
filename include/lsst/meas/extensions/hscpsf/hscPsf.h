@@ -191,10 +191,7 @@ public:
     PolypixPsf(CONST_PTR(HscCandidateSet) cs, int nside, int spatialOrder, double fwhm, double backnoise2, double gain);
     PolypixPsf(CONST_PTR(HscCandidateSet) cs, CONST_PTR(PolypixPsf) base);
 
-    void downsample(double *out, int nx_out, int ny_out, const double *in, double dx, double dy) const;
-    void upsample(double *out, const double *in, double dx, double dy) const;
-
-    void psf_make(double prof_accuracy);
+    void psf_make(double prof_accuracy, double regul);
     void psf_clip();
 
     PTR(HscCandidateSet) psf_clean(double prof_accuracy);
@@ -215,11 +212,12 @@ protected:
     std::vector<double> _norm;           // shape (_ncand); psfex sample->norm
     std::vector<double> _tcomp;          // shape (_psf_nx, _psf_ny, _ncoeffs)
 
-    CONST_PTR(HscSpatialModelBase) _spatial_model;
-
-    virtual void eval(int nx_out, int ny_out, double x0, double y0, double *out, double x, double y) const;
+    void _downsample(double *out, int nx_out, int ny_out, const double *in, double dx, double dy) const;
+    void _upsample(double *out, const double *in, double dx, double dy) const;
 
     std::vector<double> _make_cleaning_chi2(double prof_accuracy);
+
+    virtual void eval(int nx_out, int ny_out, double x0, double y0, double *out, double x, double y) const;
 
 private:
     void _construct(int spatialOrder, double fwhm, double backnoise2, double gain);

@@ -27,53 +27,13 @@
 #include <cstring>
 #include "lsst/meas/extensions/hscpsf/hscPsf.h"
 
-#define BIG 1.0e30
-
-static inline double square(double x) { return x*x; }
-
 
 namespace lsst { namespace meas { namespace extensions { namespace hscpsf {
 #if 0
 }}}}   // emacs pacifier
 #endif
 
-
-// private helper function for constructors
-void PolypixPsf::_construct(int spatialOrder, double fwhm, double backnoise2, double gain)
-{
-    if (spatialOrder < 0)
-        throw LSST_EXCEPT(pex::exceptions::InvalidParameterException, "spatialOrder < 0 in PolypixPsf constructor");
-
-    _spatialOrder = spatialOrder;
-    _ncoeffs = ((spatialOrder+1) * (spatialOrder+2)) / 2;
-    _spatialModel = boost::make_shared<HscSpatialModelPolynomial>(_spatialOrder, _xmin, _xmax, _ymin, _ymax);
-
-    _fwhm = fwhm;
-    _backnoise2 = backnoise2;
-    _gain = gain;
-
-    if (_ncand <= _ncoeffs)
-        throw LSST_EXCEPT(pex::exceptions::InvalidParameterException, "too few spatial candidates in PolypixPsf constructor");
-
-    _psf_nx = _nx;
-    _psf_ny = _ny;
-
-    _norm.resize(_ncand);
-    _tcomp.resize(_psf_nx * _psf_ny * _ncoeffs, 0.0);
-    _psfstep = _fwhm/2.35 * 0.5;
-
-    // FIXME understand this!
-    if (_psfstep > 1.0)
-        throw LSST_EXCEPT(pex::exceptions::RuntimeErrorException, "I don't currently understand what to do if pixstep > 1");
-
-    // FIXME revisit this!
-    for (int icand = 0; icand < _ncand; icand++) {
-        double flux = this->getCandSet()->getFlux(icand);
-        if (flux <= 0.0)
-            throw LSST_EXCEPT(pex::exceptions::RuntimeErrorException, "flux < 0 in PolypixPsf constructor");
-        _norm[icand] = flux;
-    }
-}
+static inline double square(double x) { return x*x; }
 
 
 PolypixPsf::PolypixPsf(CONST_PTR(HscCandidateSet) cs, int nside, int spatialOrder, double fwhm, double backnoise2, double gain)
@@ -97,81 +57,8 @@ PolypixPsf::PolypixPsf(CONST_PTR(HscCandidateSet) cs, CONST_PTR(PolypixPsf) base
 }
 
 
-void PolypixPsf::downsample(double *out, int nx_out, int ny_out, const double *in, double dx, double dy) const
+void PolypixPsf::psf_make(double prof_accuracy, double regul)
 {
-    const int order = 3;
-    std::vector<double> scratch(4*order);
-
-    if ((nx_out % 2 == 0) || (ny_out % 2 == 0) || (_psf_nx % 2 == 0) || (_psf_ny % 2 == 0)) {
-        //
-        // The psfex behavior in the even case looks fishy to me, so I decided to throw an
-        // exception to trap the even case, in order to rethink things if this case actually
-        // arises in practice..
-        //
-        throw LSST_EXCEPT(pex::exceptions::InvalidParameterException, 
-                          "Image size is even in PolypixPsf::downsample(); this is currently unsupported");
-    }
-
-    memset(out, 0, nx_out * ny_out * sizeof(double));
-
-    double x0 = (_psf_nx/2) - (nx_out/2)/_psfstep - dx/_psfstep;
-    double y0 = (_psf_ny/2) - (ny_out/2)/_psfstep - dy/_psfstep;
-
-    for (int i = 0; i < nx_out; i++) {
-        for (int j = 0; j < ny_out; j++) {
-	    double x = x0 + i/_psfstep;
-	    double y = y0 + j/_psfstep;
-
-	    if (x >= 0.0 && x <= _psf_nx-1 && y >= 0.0 && y <= _psf_ny-1)
-		out[i*ny_out+j] = lanczos_interpolate_2d(order, x, y, _psf_nx, _psf_ny, in, _psf_ny, &scratch[0], true, true);
-	}
-    }
-}
-
-void PolypixPsf::upsample(double *out, const double *in, double dx, double dy) const
-{
-    const int order = 3;
-    std::vector<double> scratch(4*order);
-
-    if ((_nx % 2 == 0) || (_ny % 2 == 0) || (_psf_nx % 2 == 0) || (_psf_ny % 2 == 0)) {
-        //
-        // The psfex behavior in the even case looks fishy to me, so I decided to throw an
-        // exception to trap the even case, in order to rethink things if this case actually
-        // arises in practice..
-        //
-        throw LSST_EXCEPT(pex::exceptions::InvalidParameterException, 
-                          "Image size is even in PolypixPsf::upsample(); this is currently unsupported");
-    }
-
-    double x0 = (_nx/2) - (_psf_nx/2)*_psfstep + dx;
-    double y0 = (_ny/2) - (_psf_ny/2)*_psfstep + dy;
-
-    double x1 = x0 + (_psf_nx-1) * _psfstep;
-    double y1 = y0 + (_psf_ny-1) * _psfstep;
-
-    if ((x0 < 0) || (x1 > _nx-1) || (y0 < 0) || (y1 > _ny-1)) {
-        //
-        // Currently treated as an error (rethink if this case actually arises in practice)
-        //
-        throw LSST_EXCEPT(pex::exceptions::InvalidParameterException,
-                          "PSF candidate image is too small in PolypixPsf::upsample()");
-    }
-
-    for (int i = 0; i < _psf_nx; i++) {
-        for (int j = 0; j < _psf_ny; j++) {
-	    double x = x0 + i*_psfstep;
-	    double y = y0 + j*_psfstep;
-            out[i*_psf_ny+j] = lanczos_interpolate_2d(order, x, y, _nx, _ny, in, _ny, &scratch[0], true, true);
-	}
-    }
-}
-
-
-void PolypixPsf::psf_make(double prof_accuracy)
-{
-    // FIXME rethink this
-    const double regul = 1000.0;
-
     int npix = _psf_nx * _psf_ny;
     std::vector<double> image(_ncand * npix);
     std::vector<double> weight(_ncand * npix);
@@ -181,7 +68,7 @@ void PolypixPsf::psf_make(double prof_accuracy)
         double dx = _current_xy[2*icand] - _xy0[2*icand] - 0.5*(double)(_nx-1);
         double dy = _current_xy[2*icand+1] - _xy0[2*icand+1] - 0.5*(double)(_ny-1);
 
-        upsample(&image[icand*npix], &_im[icand*_nx*_ny], dx, dy);
+        this->_upsample(&image[icand*npix], &_im[icand*_nx*_ny], dx, dy);
 
         for (int ipix = 0; ipix < npix; ipix++)
             image[icand*npix + ipix] /= _norm[icand];
@@ -300,6 +187,145 @@ void PolypixPsf::psf_clip()
 }
 
 
+// follows PsfexPsf::_doComputeImage() in meas_extensions_psfex
+void PolypixPsf::eval(int nx_out, int ny_out, double x0, double y0, double *out, double x, double y) const
+{
+    double xy[2];
+    xy[0] = x;
+    xy[1] = y;
+
+    std::vector<double> fullresIm(_psf_nx * _psf_ny);      
+    _spatialModel->eval(&fullresIm[0], 1, xy, _psf_nx * _psf_ny, &_tcomp[0]);
+
+    double dx = x - x0 - 0.5*(nx_out-1);
+    double dy = y - y0 - 0.5*(ny_out-1);
+
+    this->_downsample(out, nx_out, ny_out, &fullresIm[0], dx, dy);
+
+    //
+    // Normalize to sum 1 
+    // (FIXME put this somewhere more general?)
+    //
+    double acc = 0.0;
+    for (int i = 0; i < nx_out * ny_out; i++)
+        acc += out[i];
+    for (int i = 0; i < nx_out * ny_out; i++)
+        out[i] /= acc;
+}
+
+
+// -------------------------------------------------------------------------------------------------
+
+
+
+// private helper function for constructors
+void PolypixPsf::_construct(int spatialOrder, double fwhm, double backnoise2, double gain)
+{
+    if (spatialOrder < 0)
+        throw LSST_EXCEPT(pex::exceptions::InvalidParameterException, "spatialOrder < 0 in PolypixPsf constructor");
+
+    _fwhm = fwhm;
+    _backnoise2 = backnoise2;
+    _gain = gain;
+
+    _spatialOrder = spatialOrder;
+    _spatialModel = boost::make_shared<HscSpatialModelPolynomial>(_spatialOrder, _xmin, _xmax, _ymin, _ymax);
+    _ncoeffs = _spatialModel->getNcoeffs();
+
+    if (_ncand <= _ncoeffs)
+        throw LSST_EXCEPT(pex::exceptions::InvalidParameterException, "too few spatial candidates in PolypixPsf constructor");
+
+    _psf_nx = _nx;
+    _psf_ny = _ny;
+
+    _norm.resize(_ncand);
+    _tcomp.resize(_psf_nx * _psf_ny * _ncoeffs, 0.0);
+    _psfstep = _fwhm/2.35 * 0.5;
+
+    // FIXME understand this!
+    if (_psfstep > 1.0)
+        throw LSST_EXCEPT(pex::exceptions::RuntimeErrorException, "I don't currently understand what to do if pixstep > 1");
+
+    // FIXME revisit this!
+    for (int icand = 0; icand < _ncand; icand++) {
+        double flux = this->getCandSet()->getFlux(icand);
+        if (flux <= 0.0)
+            throw LSST_EXCEPT(pex::exceptions::RuntimeErrorException, "flux < 0 in PolypixPsf constructor");
+        _norm[icand] = flux;
+    }
+}
+
+
+void PolypixPsf::_downsample(double *out, int nx_out, int ny_out, const double *in, double dx, double dy) const
+{
+    const int order = 3;
+    std::vector<double> scratch(4*order);
+
+    if ((nx_out % 2 == 0) || (ny_out % 2 == 0) || (_psf_nx % 2 == 0) || (_psf_ny % 2 == 0)) {
+        //
+        // The psfex behavior in the even case looks fishy to me, so I decided to throw an
+        // exception to trap the even case, in order to rethink things if this case actually
+        // arises in practice..
+        //
+        throw LSST_EXCEPT(pex::exceptions::InvalidParameterException, 
+                          "Image size is even in PolypixPsf::downsample(); this is currently unsupported");
+    }
+
+    memset(out, 0, nx_out * ny_out * sizeof(double));
+
+    double x0 = (_psf_nx/2) - (nx_out/2)/_psfstep - dx/_psfstep;
+    double y0 = (_psf_ny/2) - (ny_out/2)/_psfstep - dy/_psfstep;
+
+    for (int i = 0; i < nx_out; i++) {
+        for (int j = 0; j < ny_out; j++) {
+	    double x = x0 + i/_psfstep;
+	    double y = y0 + j/_psfstep;
+
+	    if (x >= 0.0 && x <= _psf_nx-1 && y >= 0.0 && y <= _psf_ny-1)
+		out[i*ny_out+j] = lanczos_interpolate_2d(order, x, y, _psf_nx, _psf_ny, in, _psf_ny, &scratch[0], true, true);
+	}
+    }
+}
+
+void PolypixPsf::_upsample(double *out, const double *in, double dx, double dy) const
+{
+    const int order = 3;
+    std::vector<double> scratch(4*order);
+
+    if ((_nx % 2 == 0) || (_ny % 2 == 0) || (_psf_nx % 2 == 0) || (_psf_ny % 2 == 0)) {
+        //
+        // The psfex behavior in the even case looks fishy to me, so I decided to throw an
+        // exception to trap the even case, in order to rethink things if this case actually
+        // arises in practice..
+        //
+        throw LSST_EXCEPT(pex::exceptions::InvalidParameterException, 
+                          "Image size is even in PolypixPsf::upsample(); this is currently unsupported");
+    }
+
+    double x0 = (_nx/2) - (_psf_nx/2)*_psfstep + dx;
+    double y0 = (_ny/2) - (_psf_ny/2)*_psfstep + dy;
+
+    double x1 = x0 + (_psf_nx-1) * _psfstep;
+    double y1 = y0 + (_psf_ny-1) * _psfstep;
+
+    if ((x0 < 0) || (x1 > _nx-1) || (y0 < 0) || (y1 > _ny-1)) {
+        //
+        // Currently treated as an error (rethink if this case actually arises in practice)
+        //
+        throw LSST_EXCEPT(pex::exceptions::InvalidParameterException,
+                          "PSF candidate image is too small in PolypixPsf::upsample()");
+    }
+
+    for (int i = 0; i < _psf_nx; i++) {
+        for (int j = 0; j < _psf_ny; j++) {
+	    double x = x0 + i*_psfstep;
+	    double y = y0 + j*_psfstep;
+            out[i*_psf_ny+j] = lanczos_interpolate_2d(order, x, y, _nx, _ny, in, _ny, &scratch[0], true, true);
+	}
+    }
+}
+
+
 //
 // Preserves a lot of psfex logic that I can't say I understand!
 //
@@ -321,7 +347,7 @@ std::vector<double> PolypixPsf::_make_cleaning_chi2(double prof_accuracy)
         }
     }
 
-    const bool accuflag = (prof_accuracy > 1.0/BIG);
+    const bool accuflag = (prof_accuracy > 1.0e-30);
 
     std::vector<double> loc(_psf_nx * _psf_ny);
     std::vector<double> dresi(_nx*_ny, 0.0);
@@ -338,7 +364,7 @@ std::vector<double> PolypixPsf::_make_cleaning_chi2(double prof_accuracy)
         _spatialModel->eval(&loc[0], 1, &_current_xy[2*icand], _psf_nx * _psf_ny, &_tcomp[0]);
 
         // temporarily set vigresi = psf in vignette coordinates (not postmultiplied by flux)
-        downsample(&vigresi[icand*_nx*_ny], _nx, _ny, &loc[0], dx, dy);
+        this->_downsample(&vigresi[icand*_nx*_ny], _nx, _ny, &loc[0], dx, dy);
 
         // -------------------- fit flux --------------------
 
@@ -388,37 +414,6 @@ std::vector<double> PolypixPsf::_make_cleaning_chi2(double prof_accuracy)
     }    
 
     return ret;
-}
-
-
-// -------------------------------------------------------------------------------------------------
-
-
-
-// follows PsfexPsf::_doComputeImage() in meas_extensions_psfex
-void PolypixPsf::eval(int nx_out, int ny_out, double x0, double y0, double *out, double x, double y) const
-{
-    double xy[2];
-    xy[0] = x;
-    xy[1] = y;
-
-    std::vector<double> fullresIm(_psf_nx * _psf_ny);      
-    _spatialModel->eval(&fullresIm[0], 1, xy, _psf_nx * _psf_ny, &_tcomp[0]);
-
-    double dx = x - x0 - 0.5*(nx_out-1);
-    double dy = y - y0 - 0.5*(ny_out-1);
-
-    downsample(out, nx_out, ny_out, &fullresIm[0], dx, dy);
-
-    //
-    // Normalize to sum 1 
-    // (FIXME put this somewhere more general?)
-    //
-    double acc = 0.0;
-    for (int i = 0; i < nx_out * ny_out; i++)
-        acc += out[i];
-    for (int i = 0; i < nx_out * ny_out; i++)
-        out[i] /= acc;
 }
 
 

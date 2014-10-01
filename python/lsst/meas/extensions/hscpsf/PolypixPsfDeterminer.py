@@ -272,19 +272,19 @@ class PolypixPsfDeterminer(object):
             print >>sys.stderr, 'warning: setting gain to', gain
 
         psf = hscpsfLib.PolypixPsf(cs, nside, self.config.spatialOrder, fwhm, backnoise2, gain)
-        psf.psf_make(0.2)
+        psf.psf_make(0.2, 1000.0)
         cs = psf.psf_clean(0.2)
 
         psf = hscpsfLib.PolypixPsf(cs, psf)
-        psf.psf_make(0.1)
+        psf.psf_make(0.1, 1000.0)
         cs = psf.psf_clean(0.1)
 
         psf = hscpsfLib.PolypixPsf(cs, psf)
-        psf.psf_make(0.05)
+        psf.psf_make(0.05, 1000.0)
         cs = psf.psf_clean(0.05)
 
         psf = hscpsfLib.PolypixPsf(cs, psf)
-        psf.psf_make(0.01)
+        psf.psf_make(0.01, 1000.0)
         psf.psf_clip()
 
         # The next 2 loops mark bad candidates
