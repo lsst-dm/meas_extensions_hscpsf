@@ -322,14 +322,6 @@ void PolypixPsf::psf_clip()
 }
 
 
-void PolypixPsf::psf_build(double *loc, const double *xy) const
-{
-    int npix = _psf_nx * _psf_ny;
-    memset(loc, 0, npix * sizeof(double));
-    _spatialModel->eval(loc, 1, xy, npix, &_tcomp[0]);
-}
-
-
 void PolypixPsf::psf_makeresi(double prof_accuracy)
 {
     const bool accuflag = (prof_accuracy > 1.0/BIG);
@@ -345,7 +337,8 @@ void PolypixPsf::psf_makeresi(double prof_accuracy)
         double dx = _current_xy[2*icand] - _xy0[2*icand] - 0.5*(double)(_nx-1);
         double dy = _current_xy[2*icand+1] - _xy0[2*icand+1] - 0.5*(double)(_ny-1);
 
-        this->psf_build(&loc[0], &_current_xy[2*icand]);
+        // psf_build
+        _spatialModel->eval(&loc[0], 1, &_current_xy[2*icand], _psf_nx * _psf_ny, &_tcomp[0]);
 
         // temporarily set vigresi = psf in vignette coordinates (not postmultiplied by flux)
         downsample(&_vigresi[icand*_nx*_ny], _nx, _ny, &loc[0], dx, dy);
@@ -412,7 +405,7 @@ void PolypixPsf::eval(int nx_out, int ny_out, double x0, double y0, double *out,
     xy[1] = y;
 
     std::vector<double> fullresIm(_psf_nx * _psf_ny);      
-    psf_build(&fullresIm[0], xy);
+    _spatialModel->eval(&fullresIm[0], 1, xy, _psf_nx * _psf_ny, &_tcomp[0]);
 
     double dx = x - x0 - 0.5*(nx_out-1);
     double dy = y - y0 - 0.5*(ny_out-1);

@@ -200,14 +200,6 @@ public:
 
     PTR(HscCandidateSet) psf_clean(double prof_accuracy);
 
-    //
-    // @out = output array of shape (_psf_nx, _psf_ny)
-    // @xy = input_array of shape (2,)
-    //
-    // Note: the @xy coordinates are unscaled, in contrast to the identically-named routine in psfex
-    //
-    void psf_build(double *out, const double *xy) const;
-
 protected:
     int _spatialOrder;
     int _ncoeffs;
