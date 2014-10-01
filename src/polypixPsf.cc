@@ -59,12 +59,7 @@ void PolypixPsf::_construct(int spatialOrder, double fwhm, double backnoise2, do
     _psf_ny = _ny;
 
     _norm.resize(_ncand);
-    _vigweight.resize(_ncand * _nx * _ny);
     _tcomp.resize(_psf_nx * _psf_ny * _ncoeffs, 0.0);
-    _vigresi.resize(_ncand * _nx * _ny, 0.0);
-    _vigchi.resize(_ncand * _nx * _ny, 0.0);    
-    _chi2.resize(_ncand, 0.0);
-
     _psfstep = _fwhm/2.35 * 0.5;
 
     // FIXME understand this!
@@ -77,22 +72,6 @@ void PolypixPsf::_construct(int spatialOrder, double fwhm, double backnoise2, do
         if (flux <= 0.0)
             throw LSST_EXCEPT(pex::exceptions::RuntimeErrorException, "flux < 0 in PolypixPsf constructor");
         _norm[icand] = flux;
-    }
-
-    //
-    // vigweight initialization offset modeled on psfex sample_utils.c make_weights()
-    //
-    const double prof_accuracy = 0.01;   // FIXME hardcoded
-
-    for (int i = 0; i < _ncand * _nx * _ny; i++) {
-        if (_iv[i] <= 0.0)   // replaces (_im[i] < -BIG) condition in psfex
-            _vigweight[i] = 0.0;
-        else {
-            double noise2 = _backnoise2 + (prof_accuracy * prof_accuracy * _im[i] * _im[i]);
-            if (_im[i] > 0.0 && _gain > 0.0)
-                noise2 += _im[i] / _gain;
-            _vigweight[i] = 1.0 / noise2;
-        }
     }
 }
 
@@ -236,11 +215,11 @@ void PolypixPsf::psf_make(double prof_accuracy)
 
 PTR(HscCandidateSet) PolypixPsf::psf_clean(double prof_accuracy)
 {
-    this->psf_makeresi(prof_accuracy);
+    std::vector<double> chi2 = this->_make_cleaning_chi2(prof_accuracy);
 
     std::vector<double> chi(_ncand);
     for (int icand = 0; icand < _ncand; icand++)
-        chi[icand] = sqrt(_chi2[icand]);
+        chi[icand] = sqrt(chi2[icand]);
 
     std::sort(chi.begin(), chi.end());
     int lo = 0;
@@ -281,7 +260,7 @@ PTR(HscCandidateSet) PolypixPsf::psf_clean(double prof_accuracy)
     double chi2max = (chimed + 3*chisig) * (chimed + 3*chisig);
 
     for (int icand = 0; icand < _ncand; icand++)
-        if (_chi2[icand] <= chi2max)
+        if (chi2[icand] <= chi2max)
             ret->add(_cs, icand);
 
     return ret;
@@ -322,15 +301,35 @@ void PolypixPsf::psf_clip()
 }
 
 
-void PolypixPsf::psf_makeresi(double prof_accuracy)
+//
+// Preserves a lot of psfex logic that I can't say I understand!
+//
+std::vector<double> PolypixPsf::_make_cleaning_chi2(double prof_accuracy)
 {
+    // -------------------- initalize vigweight --------------------
+
+    std::vector<double> vigweight(_ncand * _nx * _ny);
+    const double vw_accuracy = 0.01;   // FIXME hardcoded
+
+    for (int i = 0; i < _ncand * _nx * _ny; i++) {
+        if (_iv[i] <= 0.0)   // replaces (_im[i] < -BIG) condition in psfex
+            vigweight[i] = 0.0;
+        else {
+            double noise2 = _backnoise2 + (vw_accuracy * vw_accuracy * _im[i] * _im[i]);
+            if (_im[i] > 0.0 && _gain > 0.0)
+                noise2 += _im[i] / _gain;
+            vigweight[i] = 1.0 / noise2;
+        }
+    }
+
     const bool accuflag = (prof_accuracy > 1.0/BIG);
 
     std::vector<double> loc(_psf_nx * _psf_ny);
     std::vector<double> dresi(_nx*_ny, 0.0);
 
-    memset(&_vigresi[0], 0, _vigresi.size() * sizeof(double));
-    memset(&_vigchi[0], 0, _vigchi.size() * sizeof(double));
+    std::vector<double> vigresi(_ncand * _nx * _ny, 0.0);
+    std::vector<double> vigchi(_ncand * _nx * _ny, 0.0);
+    std::vector<double> ret(_ncand);
 
     for (int icand = 0; icand < _ncand; icand++) {
         // psfex sample->dx, sample->dy
@@ -341,7 +340,7 @@ void PolypixPsf::psf_makeresi(double prof_accuracy)
         _spatialModel->eval(&loc[0], 1, &_current_xy[2*icand], _psf_nx * _psf_ny, &_tcomp[0]);
 
         // temporarily set vigresi = psf in vignette coordinates (not postmultiplied by flux)
-        downsample(&_vigresi[icand*_nx*_ny], _nx, _ny, &loc[0], dx, dy);
+        downsample(&vigresi[icand*_nx*_ny], _nx, _ny, &loc[0], dx, dy);
 
         // -------------------- fit flux --------------------
 
@@ -349,8 +348,8 @@ void PolypixPsf::psf_makeresi(double prof_accuracy)
         double xyi = 0.0;
 
         for (int s = icand*_nx*_ny; s < (icand+1)*_nx*_ny; s++) {
-            xi2 += _vigweight[s] * _vigresi[s] * _vigresi[s];
-            xyi += _vigweight[s] * _vigresi[s] * _im[s];
+            xi2 += vigweight[s] * vigresi[s] * vigresi[s];
+            xyi += vigweight[s] * vigresi[s] * _im[s];
         }
 
         double norm = (xi2 > 0.0) ? (xyi/xi2) : _norm[icand];
@@ -370,26 +369,28 @@ void PolypixPsf::psf_makeresi(double prof_accuracy)
 
                 double x = ix-xc;
                 double y = iy-yc;
-                double wval = _vigweight[s];
+                double wval = vigweight[s];
 
                 if (wval > 0.0) {
                     if (accuflag)
-                        wval = 1.0 / (1.0/wval + psf_extraccu2 * _vigresi[s] * _vigresi[s]);
+                        wval = 1.0 / (1.0/wval + psf_extraccu2 * vigresi[s] * vigresi[s]);
                     
                     // at this point in the code, vigresi = actual residual
-                    _vigresi[s] = _im[s] - norm * _vigresi[s];
+                    vigresi[s] = _im[s] - norm * vigresi[s];
 
                     if (x*x+y*y < rmax2) {
-                        _vigchi[s] = wval * square(_vigresi[s]);
-                        chi2 += _vigchi[s];
+                        vigchi[s] = wval * square(vigresi[s]);
+                        chi2 += vigchi[s];
                         nchi2++;
                     }
                 }
             }
         }
 
-        _chi2[icand] = (nchi2 > 1)? (chi2/(nchi2-1)) : chi2;
+        ret[icand] = (nchi2 > 1)? (chi2/(nchi2-1)) : chi2;
     }    
+
+    return ret;
 }
 
 

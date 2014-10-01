@@ -195,7 +195,6 @@ public:
     void upsample(double *out, const double *in, double dx, double dy) const;
 
     void psf_make(double prof_accuracy);
-    void psf_makeresi(double prof_accuracy);
     void psf_clip();
 
     PTR(HscCandidateSet) psf_clean(double prof_accuracy);
@@ -214,18 +213,13 @@ protected:
     double _psfstep;         // FIXME look at psfex source and figure out the difference between pixstep and psfstep
 
     std::vector<double> _norm;           // shape (_ncand); psfex sample->norm
-
-    std::vector<double> _vigweight;      // shape (_ncand, _nx, _ny)
     std::vector<double> _tcomp;          // shape (_psf_nx, _psf_ny, _ncoeffs)
-
-    // psf_makeresi() sets this data
-    std::vector<double> _vigresi;        // shape (_ncand, _nx, _ny)
-    std::vector<double> _vigchi;         // shape (_ncand, _nx, _ny)    per-pixel contribution to chi^2
-    std::vector<double> _chi2;           // shape (_ncand,)             reduced chi^2
 
     CONST_PTR(HscSpatialModelBase) _spatial_model;
 
     virtual void eval(int nx_out, int ny_out, double x0, double y0, double *out, double x, double y) const;
+
+    std::vector<double> _make_cleaning_chi2(double prof_accuracy);
 
 private:
     void _construct(int spatialOrder, double fwhm, double backnoise2, double gain);
