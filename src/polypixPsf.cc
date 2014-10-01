@@ -172,21 +172,22 @@ void PolypixPsf::psf_make(double prof_accuracy)
     // FIXME rethink this
     const double regul = 1000.0;
 
-    std::vector<double> image(_ncand * _psf_nx * _psf_ny);
-    std::vector<double> weight(_ncand * _psf_nx * _psf_ny);
+    int npix = _psf_nx * _psf_ny;
+    std::vector<double> image(_ncand * npix);
+    std::vector<double> weight(_ncand * npix);
 
     for (int icand = 0; icand < _ncand; icand++) {
         // psfex sample->dx, sample->dy
         double dx = _current_xy[2*icand] - _xy0[2*icand] - 0.5*(double)(_nx-1);
         double dy = _current_xy[2*icand+1] - _xy0[2*icand+1] - 0.5*(double)(_ny-1);
 
-        upsample(&image[icand*_psf_nx*_psf_ny], &_im[icand*_nx*_ny], dx, dy);
+        upsample(&image[icand*npix], &_im[icand*_nx*_ny], dx, dy);
 
-        for (int i = 0; i < _nx*_ny; i++)
-            image[icand*_psf_nx*_psf_ny + i] /= _norm[icand];
+        for (int ipix = 0; ipix < npix; ipix++)
+            image[icand*npix + ipix] /= _norm[icand];
             
-        for (int i = 0; i < _nx*_ny; i++) {
-            double val = image[icand*_psf_nx*_psf_ny + i];
+        for (int ipix = 0; ipix < npix; ipix++) {
+            double val = image[icand*npix + ipix];
             double norm2 = _norm[icand] * _norm[icand];
             double profaccu2 = prof_accuracy * prof_accuracy * norm2;
             double noise2 = _backnoise2 + profaccu2 * val * val;
@@ -194,14 +195,12 @@ void PolypixPsf::psf_make(double prof_accuracy)
             if (val > 0.0 && _gain > 0.0)
                 noise2 += val/_gain;
 
-            weight[icand*_nx*_ny + i] = norm2/noise2;
+            weight[icand*npix + ipix] = norm2/noise2;
         }
     }
 
     std::vector<double> a(_ncand);
     std::vector<double> b(_ncand);
-    std::vector<double> coeff(_ncoeffs);
-    int npix = _psf_nx * _psf_ny;
 
     for (int ipix = 0; ipix < npix; ipix++) {
         for (int icand = 0; icand < _ncand; icand++) {
@@ -328,7 +327,6 @@ std::vector<double> PolypixPsf::_make_cleaning_chi2(double prof_accuracy)
     std::vector<double> dresi(_nx*_ny, 0.0);
 
     std::vector<double> vigresi(_ncand * _nx * _ny, 0.0);
-    std::vector<double> vigchi(_ncand * _nx * _ny, 0.0);
     std::vector<double> ret(_ncand);
 
     for (int icand = 0; icand < _ncand; icand++) {
@@ -379,8 +377,7 @@ std::vector<double> PolypixPsf::_make_cleaning_chi2(double prof_accuracy)
                     vigresi[s] = _im[s] - norm * vigresi[s];
 
                     if (x*x+y*y < rmax2) {
-                        vigchi[s] = wval * square(vigresi[s]);
-                        chi2 += vigchi[s];
+                        chi2 += wval * square(vigresi[s]);
                         nchi2++;
                     }
                 }

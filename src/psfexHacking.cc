@@ -162,8 +162,9 @@ void FakePsfexPsf::psf_make(double prof_accuracy)
     std::cerr << "    contextoffset = [ " << _contextoffset[0] << " " << _contextoffset[1] << " ]\n";
     std::cerr << "    contextscale = [ " << _contextscale[0] << " " << _contextscale[1] << " ]\n";
 
-    std::vector<double> image(_ncand * _psf_nx * _psf_ny);
-    std::vector<double> weight(_ncand * _psf_nx * _psf_ny);
+    int npix = _psf_nx * _psf_ny;
+    std::vector<double> image(_ncand * npix);
+    std::vector<double> weight(_ncand * npix);
     std::vector<double> pos(_ncand * 2);
 
     for (int icand = 0; icand < _ncand; icand++) {
@@ -175,11 +176,11 @@ void FakePsfexPsf::psf_make(double prof_accuracy)
                                &image[icand*_psf_nx*_psf_ny], _psf_nx, _psf_ny,
                                dx, dy, _psfstep, 1.0);   // FIXME note in psfex code, last arg is max(_psfstep,1.0)
 
-        for (int i = 0; i < _nx*_ny; i++)
-            image[icand*_psf_nx*_psf_ny + i] /= _norm[icand];
+        for (int ipix = 0; ipix < npix; ipix++)
+            image[icand*npix + ipix] /= _norm[icand];
             
-        for (int i = 0; i < _nx*_ny; i++) {
-            double val = image[icand*_psf_nx*_psf_ny + i];
+        for (int ipix = 0; ipix < npix; ipix++) {
+            double val = image[icand*npix + ipix];
             double norm2 = _norm[icand] * _norm[icand];
             double profaccu2 = prof_accuracy * prof_accuracy * norm2;
             double noise2 = _backnoise2 + profaccu2 * val * val;
@@ -187,7 +188,7 @@ void FakePsfexPsf::psf_make(double prof_accuracy)
             if (val > 0.0 && _gain > 0.0)
                 noise2 += val/_gain;
 
-            weight[icand*_nx*_ny + i] = norm2/noise2;
+            weight[icand*npix + ipix] = norm2/noise2;
         }
 
         pos[2*icand] = (_current_xy[2*icand] - _contextoffset[0]) / _contextscale[0];
@@ -235,7 +236,6 @@ void FakePsfexPsf::psf_make(double prof_accuracy)
     std::vector<double> pstack(_ncand);
     std::vector<double> wstack(_ncand);
     std::vector<double> coeff(_ncoeffs);
-    int npix = _psf_nx * _psf_ny;
 
     for (int ipix = 0; ipix < npix; ipix++) {
         for (int icand = 0; icand < _ncand; icand++) {
