@@ -224,7 +224,7 @@ protected:
     std::vector<double> _norm;           // shape (_ncand); psfex sample->norm
 
     std::vector<double> _vigweight;      // shape (_ncand, _nx, _ny)
-    std::vector<double> _comp;           // shape (_ncoeffs, _psf_nx, psf_ny)
+    std::vector<double> _tcomp;          // shape (_psf_nx, _psf_ny, _ncoeffs)
 
     // psf_makeresi() sets this data
     std::vector<double> _vigresi;        // shape (_ncand, _nx, _ny)

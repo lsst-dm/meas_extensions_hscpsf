@@ -60,7 +60,7 @@ void PolypixPsf::_construct(int spatialOrder, double fwhm, double backnoise2, do
 
     _norm.resize(_ncand);
     _vigweight.resize(_ncand * _nx * _ny);
-    _comp.resize(_ncoeffs * _psf_nx * _psf_ny, 0.0);
+    _tcomp.resize(_psf_nx * _psf_ny * _ncoeffs, 0.0);
     _vigresi.resize(_ncand * _nx * _ny, 0.0);
     _vigchi.resize(_ncand * _nx * _ny, 0.0);    
     _chi2.resize(_ncand, 0.0);
@@ -229,11 +229,7 @@ void PolypixPsf::psf_make(double prof_accuracy)
             a[icand] = weight[icand*npix + ipix];
             b[icand] = weight[icand*npix + ipix] * image[icand*npix + ipix];
         }
-
-        _spatialModel->optimize(&coeff[0], _ncand, &_current_xy[0], &a[0], &b[0], regul);
-
-        for (int icoeff = 0; icoeff < _ncoeffs; icoeff++)
-            _comp[icoeff*npix + ipix] = coeff[icoeff];
+        _spatialModel->optimize(&_tcomp[ipix*_ncoeffs], _ncand, &_current_xy[0], &a[0], &b[0], regul);
     }
 }
 
@@ -309,16 +305,18 @@ void PolypixPsf::psf_clip()
     rmax2 *= rmax2;
     dr2 = rmax2 - rmin2;
 
-    for (int ic = 0; ic < _ncoeffs; ic++) {
-        for (int ix = 0; ix < _psf_nx; ix++) {
-            for (int iy = 0; iy < _psf_ny; iy++) {
-                double r2 = (ix-xc)*(ix-xc) + (iy-yc)*(iy-yc);
+    for (int ix = 0; ix < _psf_nx; ix++) {
+        for (int iy = 0; iy < _psf_ny; iy++) {
+            double r2 = (ix-xc)*(ix-xc) + (iy-yc)*(iy-yc);
+            double t = 1.0;            
+
+            if (r2 >= rmax2)
+                t = 0.0;
+            else if (r2 > rmin2)
+                t = ((rmax2-r2) / dr2);
             
-                if (r2 >= rmax2)
-                    _comp[ic*_psf_nx*_psf_ny + ix*_psf_ny + iy] = 0.0;
-                else if (r2 > rmin2)
-                    _comp[ic*_psf_nx*_psf_ny + ix*_psf_ny + iy] *= (rmax2-r2) / dr2;
-            }
+            for (int ic = 0; ic < _ncoeffs; ic++)
+                _tcomp[ix*_psf_ny*_ncoeffs + iy*_ncoeffs + ic] *= t;
         }
     }
 }
@@ -328,13 +326,6 @@ void PolypixPsf::psf_build(double *loc, const double *xy) const
 {
     int npix = _psf_nx * _psf_ny;
     memset(loc, 0, npix * sizeof(double));
-
-    // FIXME oops, _comp is transposed
-    std::vector<double> _tcomp(npix * _ncoeffs);
-    for (int ic = 0; ic < _ncoeffs; ic++)
-        for (int ipix = 0; ipix < npix; ipix++)
-            _tcomp[ipix*_ncoeffs+ic] = _comp[ic*npix+ipix];
-
     _spatialModel->eval(loc, 1, xy, npix, &_tcomp[0]);
 }
 
