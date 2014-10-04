@@ -113,27 +113,6 @@ void HscCandidateSet::add(const meas::algorithms::PsfCandidate<float> &cand, int
     _id[_ncand] = id;
     _flux[_ncand] = flux;
     _size[_ncand] = size;
-
-    if (0) {
-        std::cerr << "image\n";
-        for (int i = 0; i < _nx; i++) {
-            for (int j = 0; j < _ny; j++)
-                std::cerr << " " << _im[_ncand*_nx*_ny + i*_ny + j];
-            std::cerr << "\n";
-        }
-        
-        std::cerr << "iv\n";
-        for (int i = 0; i < _nx; i++) {
-            for (int j = 0; j < _ny; j++)
-                std::cerr << " " << _iv[_ncand*_nx*_ny + i*_ny + j];
-            std::cerr << "\n";
-        }
-
-        std::cerr << "xy " << _xy[_ncand*2] << " " << _xy[_ncand*2+1] << "\n";
-        std::cerr << "xy0 " << _xy0[_ncand*2] << " " << _xy0[_ncand*2+1] << "\n";
-        std::cerr << "id " << _id[_ncand] << "\n";
-    }
-
     _ncand++;
 }
 

@@ -71,11 +71,11 @@ void PolypixPsf::psf_make(double prof_accuracy, double regul)
         this->_upsample(&image[icand*npix], &_im[icand*_nx*_ny], dx, dy);
 
         for (int ipix = 0; ipix < npix; ipix++)
-            image[icand*npix + ipix] /= _norm[icand];
+            image[icand*npix + ipix] /= _flux[icand];
             
         for (int ipix = 0; ipix < npix; ipix++) {
             double val = image[icand*npix + ipix];
-            double norm2 = _norm[icand] * _norm[icand];
+            double norm2 = _flux[icand] * _flux[icand];
             double profaccu2 = prof_accuracy * prof_accuracy * norm2;
             double noise2 = _backnoise2 + profaccu2 * val * val;
 
@@ -238,7 +238,7 @@ void PolypixPsf::_construct(int spatialOrder, double fwhm, double backnoise2, do
     _psf_nx = _nx;
     _psf_ny = _ny;
 
-    _norm.resize(_ncand);
+    _flux.resize(_ncand);
     _tcomp.resize(_psf_nx * _psf_ny * _ncoeffs, 0.0);
     _psfstep = _fwhm/2.35 * 0.5;
 
@@ -251,7 +251,7 @@ void PolypixPsf::_construct(int spatialOrder, double fwhm, double backnoise2, do
         double flux = this->getCandSet()->getFlux(icand);
         if (flux <= 0.0)
             throw LSST_EXCEPT(pex::exceptions::RuntimeErrorException, "flux < 0 in PolypixPsf constructor");
-        _norm[icand] = flux;
+        _flux[icand] = flux;
     }
 }
 
@@ -376,7 +376,7 @@ std::vector<double> PolypixPsf::_make_cleaning_chi2(double prof_accuracy)
             xyi += vigweight[s] * vigresi[s] * _im[s];
         }
 
-        double norm = (xi2 > 0.0) ? (xyi/xi2) : _norm[icand];
+        double norm = (xi2 > 0.0) ? (xyi/xi2) : _flux[icand];
 
         // -------------------- subtract psf model and compute chi^2 --------------------
 

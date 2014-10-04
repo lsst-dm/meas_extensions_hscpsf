@@ -34,7 +34,104 @@ namespace lsst { namespace meas { namespace extensions { namespace hscpsf {
 #endif
 
 
+class HscCandidateSet;
 class HscSpatialModelBase;
+
+    
+class HscPsfBase : public meas::algorithms::ImagePsf {
+public:
+    // @nside determines size of PSF: returned image is (2*nside+1)-by-(2*nside+1)
+    HscPsfBase(CONST_PTR(HscCandidateSet) cs, int nside);
+
+    // called when PSF is evaluated e.g. at star or galaxy position (FIXME make pure virtual)
+    virtual void eval(int nx_out, int ny_out, double x0, double y0, double *out, double x, double y) const;
+
+    int getNcand() const { return _ncand; }
+    int getNx() const { return _nx; }
+    int getNy() const { return _ny; }
+    int getNside() const { return _nside; }
+
+    CONST_PTR(HscCandidateSet) getCandSet() const { return _cs; }
+    
+    const double *getIm(int icand) const;
+    const double *getIV(int icand) const;
+
+    double getX(int icand) const;
+    double getY(int icand) const;
+    double getXini(int icand) const;
+    double getYini(int icand) const;
+
+    // note: has no effect except to determine which candidates are returned by getTrimmedCandidateSet()
+    void setBad(int icand);
+
+    // returns new HscCandidateSet with updated (x,y) values and with bad candidates dropped
+    PTR(HscCandidateSet) getTrimmedCandidateSet() const;
+
+    double get_total_reduced_chi2() const;
+
+    // devirtualize ImagePsf base class
+    virtual PTR(afw::detection::Psf)  clone() const;
+    virtual afw::geom::Point2D        getAveragePosition() const;
+    virtual PTR(Image)                doComputeImage(afw::geom::Point2D const &position, afw::image::Color const &color) const;
+    virtual PTR(Image)                doComputeKernelImage(afw::geom::Point2D const &position, afw::image::Color const &color) const;
+    
+protected:
+    CONST_PTR(HscCandidateSet) _cs;
+    const int _ncand;
+    const int _nx;
+    const int _ny;
+    const int _nside;
+    const double *_im;
+    const double *_iv;
+    const int *_xy0;
+    const double *_initial_xy;
+    const double *_detection_chi2;
+    const int *_ndof;
+
+    std::vector<double> _current_xy;       // shape (ncand, 2)
+    std::vector<double> _current_psfimg;   // shape (ncand, nx, ny)
+    std::vector<double> _residual_chi2;    // shape (ncand,)
+    std::vector<bool>   _bad;              // shape (ncand,)
+
+    // computed at construction
+    double _xmin, _xmax, _xmean;
+    double _ymin, _ymax, _ymean;
+    
+    //
+    // Called by subclass when PSF model parameters change, to udpate _current_psfimg.  
+    // Also preserves invariants by updating _residual_chi2
+    // 
+    void _updateCurrentPsfImg(int icand, const double *img);
+
+public:
+    // static helper functions
+    static void make_shear_matrix(double &axx, double &axy, double &ayy, double gamma1, double gamma2, double kappa);
+    static double fit_basis_images(double *out_ampl, int nbf, int nxy, const double *iv, const double *im, const double *basis_images);   // returns residual chi^2
+
+    //
+    // Static helper function for Lanczos interpolation
+    // Note: scratch should be a buffer of length 4*order
+    //
+    static double lanczos_interpolate_2d(int order, double x, double y, int nx, int ny, const double *f, 
+                                         int stride, double *scratch, bool zero_pad, bool normalize);
+
+    //
+    // Static helper function: Given a grid of values defined at integer points (i,j), where (0 <= i < nx_in) and (0 <= j < ny_in)
+    // this routine interpolates onto a grid defined at points (x0+i,y0+j), where (0 <= i < nx_out) and (0 <= j < ny_out)
+    //
+    // Note: the transpose of 
+    //    lanczos_offset_2d(x0, y0, nx_out, ny_out, nx_in, ny_in)
+    // is
+    //    lanczos_offset_2d(-x0, -y0, nx_in, ny_in, nx_out, ny_out)
+    //
+    // For this reason, we don't define a separate extirpolation-type routine (but note that it may be appropriate to
+    // set the 'accumulate' flag in an extirpolation context)
+    //
+    static void lanczos_offset_2d(int order, double x0, double y0,
+                                  int nx_out, int ny_out, double *out, int out_stride,
+                                  int nx_in, int ny_in, const double *in, int in_stride, 
+                                  bool zero_pad=false, bool accumulate=false);
+};
 
 
 class HscCandidateSet {
@@ -89,99 +186,76 @@ private:
     std::vector<double> _size;  // shape (ncand,) array
 };
 
-    
-class HscPsfBase : public meas::algorithms::ImagePsf {
+
+class HscSpatialModelBase {
 public:
-    // @nside determines size of PSF: returned image is (2*nside+1)-by-(2*nside+1)
-    HscPsfBase(CONST_PTR(HscCandidateSet) cs, int nside);
+    // number of coefficents needed to represent a spatially varying scalar quantity (assumed fixed at construction)
+    virtual int getNcoeffs() const = 0;
 
-    // called when PSF is evaluated e.g. at star or galaxy position (FIXME make pure virtual)
-    virtual void eval(int nx_out, int ny_out, double x0, double y0, double *out, double x, double y) const;
-
-    int getNcand() const { return _ncand; }
-    int getNx() const { return _nx; }
-    int getNy() const { return _ny; }
-    int getNside() const { return _nside; }
-
-    CONST_PTR(HscCandidateSet) getCandSet() const { return _cs; }
+#if !defined(SWIG)
+    //
+    // @out = array of shape (ncand,nfunc)
+    // @xy = array of shape (ncand,2)
+    // @fcoeffs = array of shape (nfunc,ncoeffs)
+    //
+    virtual void eval(double *out, int ncand, const double *xy, int nfunc, const double *fcoeffs) const = 0;
     
-    const double *getIm(int icand) const;
-    const double *getIV(int icand) const;
-
-    double getX(int icand) const;
-    double getY(int icand) const;
-    double getXini(int icand) const;
-    double getYini(int icand) const;
-
-    // note: has no effect except to determine which candidates are returned by getTrimmedCandidateSet()
-    void setBad(int icand);
-
-    // returns new HscCandidateSet with updated (x,y) values and with bad candidates dropped
-    PTR(HscCandidateSet) getTrimmedCandidateSet() const;
-
-    double get_total_reduced_chi2() const;
-
-    // devirtualize ImagePsf base class
-    virtual PTR(afw::detection::Psf)  clone() const;
-    virtual afw::geom::Point2D        getAveragePosition() const;
-    virtual PTR(Image)                doComputeImage(afw::geom::Point2D const &position, afw::image::Color const &color) const;
-    virtual PTR(Image)                doComputeKernelImage(afw::geom::Point2D const &position, afw::image::Color const &color) const;
-
-    // static helper functions
-    static void make_shear_matrix(double &axx, double &axy, double &ayy, double gamma1, double gamma2, double kappa);
-    static double fit_basis_images(double *out_ampl, int nbf, int nxy, const double *iv, const double *im, const double *basis_images);   // returns residual chi^2
+    //
+    // This routine minimizes a function of the form 
+    //    sum_{i=1}^N (1/2) a_i p(x_i)^2 - b_i p(x_i)
+    // for a sequence of 2D points {x_1,...,x_N} and scalars {a_1,...,a_N} and {b_1,...,b_N}.
+    //
+    // @out = 1D array of length ncoeffs
+    // @xy = array of shape (ncand,2)
+    // @a = 1D array of length ncand
+    // @b = 1D array of length ncand
+    //
+    virtual void optimize(double *out, int ncand, const double *xy, const double *a, const double *b, double regul) const = 0;
 
     //
-    // Static helper function for Lanczos interpolation
-    // Note: scratch should be a buffer of length 4*order
+    // @pcas = array of shape (npca, npix)
+    // @ampl = array of shape (ncand,)
+    // @sm = array of shape (npca-1, ncoeffs)
     //
-    static double lanczos_interpolate_2d(int order, double x, double y, int nx, int ny, const double *f, 
-                                         int stride, double *scratch, bool zero_pad, bool normalize);
+    // Note: not pure virtual; there is a reasonable default defined in hscSpatialModelBase.cpp
+    //
+    virtual void normalizePcaImages(int npca, int npix, int ncand, double *pca, double *ampl, double *sm) const;
+#endif  // !defined(SWIG)
+
+    virtual ~HscSpatialModelBase() { }
 
     //
-    // Static helper function: Given a grid of values defined at integer points (i,j), where (0 <= i < nx_in) and (0 <= j < ny_in)
-    // this routine interpolates onto a grid defined at points (x0+i,y0+j), where (0 <= i < nx_out) and (0 <= j < ny_out)
+    // ndarray-based versions of eval(), optimize() and normalizePcaImages()
+    // Currently these are only used in python unit tests, but maybe they will become the primary interface eventually...
     //
-    // Note: the transpose of 
-    //    lanczos_offset_2d(x0, y0, nx_out, ny_out, nx_in, ny_in)
-    // is
-    //    lanczos_offset_2d(-x0, -y0, nx_in, ny_in, nx_out, ny_out)
-    //
-    // For this reason, we don't define a separate extirpolation-type routine (but note that it may be appropriate to
-    // set the 'accumulate' flag in an extirpolation context)
-    //
-    static void lanczos_offset_2d(int order, double x0, double y0,
-                                  int nx_out, int ny_out, double *out, int out_stride,
-                                  int nx_in, int ny_in, const double *in, int in_stride, 
-                                  bool zero_pad=false, bool accumulate=false);
-    
+    ndarray::Array<double,2,2> eval(const ndarray::Array<const double,2,2> &xy, const ndarray::Array<const double,2,2> &fcoeffs) const;
+
+    ndarray::Array<double,1,1> optimize(const ndarray::Array<const double,2,2> &xy, const ndarray::Array<const double,1,1> &a, const ndarray::Array<const double,1,1> &b, double regul) const;
+
+    void normalizePcaImages(const ndarray::Array<double,2,2> &pcas, const ndarray::Array<double,1,1> &ampl, const ndarray::Array<double,2,2> &sm) const;
+};
+
+
+class HscSpatialModelPolynomial : public HscSpatialModelBase {
+public:
+    HscSpatialModelPolynomial(int order, double xmin, double xmax, double ymin, double ymax);
+    virtual ~HscSpatialModelPolynomial() { }
+
+    // Devirtualize HscSpatialModelBase
+    virtual int getNcoeffs() const;
+
+#if !defined(SWIG)
+    virtual void eval(double *out, int ncand, const double *xy, int nfunc, const double *fcoeffs) const;
+    virtual void optimize(double *out, int ncand, const double *xy, const double *a, const double *b, double regul) const;
+#endif
+
 protected:
-    CONST_PTR(HscCandidateSet) _cs;
-    const int _ncand;
-    const int _nx;
-    const int _ny;
-    const int _nside;
-    const double *_im;
-    const double *_iv;
-    const int *_xy0;
-    const double *_initial_xy;
-    const double *_detection_chi2;
-    const int *_ndof;
+    int _order;
+    int _ncoeffs;
+    double _xmin, _xmax;
+    double _ymin, _ymax;
 
-    std::vector<double> _current_xy;       // shape (ncand, 2)
-    std::vector<double> _current_psfimg;   // shape (ncand, nx, ny)
-    std::vector<double> _residual_chi2;    // shape (ncand,)
-    std::vector<bool>   _bad;              // shape (ncand,)
-
-    // computed at construction
-    double _xmin, _xmax, _xmean;
-    double _ymin, _ymax, _ymean;
-    
-    //
-    // Called by subclass when PSF model parameters change, to udpate _current_psfimg.  
-    // Also preserves invariants by updating _residual_chi2
-    // 
-    void _updateCurrentPsfImg(int icand, const double *img);
+    void _eval_xypow_scaled(double *out, int ncand, const double *t) const;
 };
     
 
@@ -209,7 +283,7 @@ protected:
     int _psf_ny;             // psfex psf->size[1]
     double _psfstep;         // FIXME look at psfex source and figure out the difference between pixstep and psfstep
 
-    std::vector<double> _norm;           // shape (_ncand); psfex sample->norm
+    std::vector<double> _flux;           // shape (_ncand)
     std::vector<double> _tcomp;          // shape (_psf_nx, _psf_ny, _ncoeffs)
 
     void _downsample(double *out, int nx_out, int ny_out, const double *in, double dx, double dy) const;
@@ -222,6 +296,9 @@ protected:
 private:
     void _construct(int spatialOrder, double fwhm, double backnoise2, double gain);
 };
+
+
+// -------------------------------------------------------------------------------------------------
 
 
 class HscSplinePsfBase : public HscPsfBase {
@@ -400,77 +477,6 @@ protected:
     void _optimize_spatial_model_and_update();
     void _optimize_xy();
     void _optimize_ampl_and_update();
-};
-
-
-class HscSpatialModelBase {
-public:
-    // number of coefficents needed to represent a spatially varying scalar quantity (assumed fixed at construction)
-    virtual int getNcoeffs() const = 0;
-
-#if !defined(SWIG)
-    //
-    // @out = array of shape (ncand,nfunc)
-    // @xy = array of shape (ncand,2)
-    // @fcoeffs = array of shape (nfunc,ncoeffs)
-    //
-    virtual void eval(double *out, int ncand, const double *xy, int nfunc, const double *fcoeffs) const = 0;
-    
-    //
-    // This routine minimizes a function of the form 
-    //    sum_{i=1}^N (1/2) a_i p(x_i)^2 - b_i p(x_i)
-    // for a sequence of 2D points {x_1,...,x_N} and scalars {a_1,...,a_N} and {b_1,...,b_N}.
-    //
-    // @out = 1D array of length ncoeffs
-    // @xy = array of shape (ncand,2)
-    // @a = 1D array of length ncand
-    // @b = 1D array of length ncand
-    //
-    virtual void optimize(double *out, int ncand, const double *xy, const double *a, const double *b, double regul) const = 0;
-
-    //
-    // @pcas = array of shape (npca, npix)
-    // @ampl = array of shape (ncand,)
-    // @sm = array of shape (npca-1, ncoeffs)
-    //
-    // Note: not pure virtual; there is a reasonable default defined in hscSpatialModelBase.cpp
-    //
-    virtual void normalizePcaImages(int npca, int npix, int ncand, double *pca, double *ampl, double *sm) const;
-#endif  // !defined(SWIG)
-
-    virtual ~HscSpatialModelBase() { }
-
-    //
-    // ndarray-based versions of eval(), optimize() and normalizePcaImages()
-    // Currently these are only used in python unit tests, but maybe they will become the primary interface eventually...
-    //
-    ndarray::Array<double,2,2> eval(const ndarray::Array<const double,2,2> &xy, const ndarray::Array<const double,2,2> &fcoeffs) const;
-
-    ndarray::Array<double,1,1> optimize(const ndarray::Array<const double,2,2> &xy, const ndarray::Array<const double,1,1> &a, const ndarray::Array<const double,1,1> &b, double regul) const;
-
-    void normalizePcaImages(const ndarray::Array<double,2,2> &pcas, const ndarray::Array<double,1,1> &ampl, const ndarray::Array<double,2,2> &sm) const;
-};
-
-
-class HscSpatialModelPolynomial : public HscSpatialModelBase {
-public:
-    HscSpatialModelPolynomial(int order, double xmin, double xmax, double ymin, double ymax);
-    virtual ~HscSpatialModelPolynomial() { }
-
-    // Devirtualize HscSpatialModelBase
-    virtual int getNcoeffs() const;
-#if !defined(SWIG)
-    virtual void eval(double *out, int ncand, const double *xy, int nfunc, const double *fcoeffs) const;
-    virtual void optimize(double *out, int ncand, const double *xy, const double *a, const double *b, double regul) const;
-#endif
-
-protected:
-    int _order;
-    int _ncoeffs;
-    double _xmin, _xmax;
-    double _ymin, _ymax;
-
-    void _eval_xypow_scaled(double *out, int ncand, const double *t) const;
 };
 
 

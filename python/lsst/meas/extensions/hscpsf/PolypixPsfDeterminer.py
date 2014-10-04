@@ -42,11 +42,6 @@ import lsst.meas.extensions.hscpsf.hscpsfLib as hscpsfLib
 
 
 class PolypixPsfDeterminerConfig(pexConfig.Config):
-    __nEigenComponents = pexConfig.Field(
-        doc = "number of eigen components for PSF kernel creation",
-        dtype = int,
-        default = 4,
-    )
     spatialOrder = pexConfig.Field(
         doc = "specify spatial order for PSF kernel creation",
         dtype = int,
@@ -57,20 +52,13 @@ class PolypixPsfDeterminerConfig(pexConfig.Config):
         doc = "size of cell used to determine PSF (pixels, column direction)",
         dtype = int,
         default = 256,
-#        minValue = 10,
         check = lambda x: x >= 10,
     )
     sizeCellY = pexConfig.Field(
         doc = "size of cell used to determine PSF (pixels, row direction)",
         dtype = int,
         default = sizeCellX.default,
-#        minValue = 10,
         check = lambda x: x >= 10,
-    )
-    __nStarPerCell = pexConfig.Field(
-        doc = "number of stars per psf cell for PSF kernel creation",
-        dtype = int,
-        default = 3,
     )
     kernelSize = pexConfig.Field(
         doc = "radius of the kernel to create, relative to the square root of the stellar quadrupole moments",
@@ -93,52 +81,8 @@ N.b. INTRP is used specially in PsfCandidateSet; it means "Contaminated by neigh
 """,
         dtype=str,
         default=["INTRP", "SAT"],
-        )
-    __borderWidth = pexConfig.Field(
-        doc = "Number of pixels to ignore around the edge of PSF candidate postage stamps",
-        dtype = int,
-        default = 0,
     )
-    __nStarPerCellSpatialFit = pexConfig.Field(
-        doc = "number of stars per psf Cell for spatial fitting",
-        dtype = int,
-        default = 5,
-    )
-    __constantWeight = pexConfig.Field(
-        doc = "Should each PSF candidate be given the same weight, independent of magnitude?",
-        dtype = bool,
-        default = True,
-    )
-    __nIterForPsf = pexConfig.Field(
-        doc = "number of iterations of PSF candidate star list",
-        dtype = int,
-        default = 3,
-    )
-    tolerance = pexConfig.Field(
-        doc = "tolerance of spatial fitting",
-        dtype = float,
-        default = 1e-2,
-    )
-    lam = pexConfig.Field(
-        doc = "floor for variance is lam*data",
-        dtype = float,
-        default = 0.05,
-    )
-    reducedChi2ForPsfCandidates = pexConfig.Field(
-        doc = "for psf candidate evaluation",
-        dtype = float,
-        default = 2.0,
-    )
-    spatialReject = pexConfig.Field(
-        doc = "Rejection threshold (stdev) for candidates based on spatial fit",
-        dtype = float,
-        default = 3.0,
-    )
-    recentroid = pexConfig.Field(
-        doc = "Recentroid PSF candidates?",
-        dtype = bool,
-        default = False,
-    )
+
 
 class PolypixPsfDeterminer(object):
     ConfigClass = PolypixPsfDeterminerConfig
@@ -163,6 +107,7 @@ class PolypixPsfDeterminer(object):
     
         @return psf
         """
+
         import lsstDebug
         display = lsstDebug.Info(__name__).display 
         displayExposure = display and \
@@ -224,39 +169,42 @@ class PolypixPsfDeterminer(object):
                 print "Median PSF RMS size=%.2f pixels (\"FWHM\"=%.2f)" % (rms, 2*np.sqrt(2*np.log(2))*rms)
         self.debugLog.debug(3, "Kernel size=%s" % (actualKernelSize,))
 
-        # FIXME rethink this (how does RHL set nside?)
         nside = actualKernelSize // 2
         if actualKernelSize != (2*nside+1):
-            raise RuntimeError('FIXME for now, we abort if actualKernelSize turns out even')
+            raise RuntimeError('Fatal: for now, it is an error if the kernel size is even in PolypixPsfDeterminer')
 
         # Set size of image returned around candidate
         psfCandidateList[0].setHeight(actualKernelSize)
         psfCandidateList[0].setWidth(actualKernelSize)
 
         mask_bits = afwImage.MaskU_getPlaneBitMask(self.config.badMaskBits)            
-        fluxName = 'initial.flux.sinc'    # FIXME should be in config (meas_extensions_psfex has it in a weird config file)
+        fluxName = 'initial.flux.sinc'    # FIXME should be in config? (meas_extensions_psfex has it in a config file)
         fluxFlagName = fluxName + ".flags"
 
         cs = hscpsfLib.HscCandidateSet(mask_bits, actualKernelSize, actualKernelSize)
 
-        xpos = []; ypos = []
-        for i, psfCandidate in enumerate(psfCandidateList):
-            source = psfCandidate.getSource()
-            xc, yc = source.getX(), source.getY()
+        with ds9.Buffering():
+            xpos = []; ypos = []
+            for i, psfCandidate in enumerate(psfCandidateList):
+                source = psfCandidate.getSource()
+                xc, yc = source.getX(), source.getY()
 
-            if fluxFlagName in source.schema and source.get(fluxFlagName):
-                continue
+                if fluxFlagName in source.schema and source.get(fluxFlagName):
+                    continue
 
-            flux = source.get(fluxName)
-            if flux < 0 or np.isnan(flux):
-                continue
+                flux = source.get(fluxName)
+                if flux < 0 or np.isnan(flux):
+                    continue
 
-            cs.add(psfCandidate, i, flux, sizes[i])
+                cs.add(psfCandidate, i, flux, sizes[i])
 
-            if flagKey is not None:
-                source.set(flagKey, True)
+                if flagKey is not None:
+                    source.set(flagKey, True)
 
-            xpos.append(xc); ypos.append(yc) # for QA
+                xpos.append(xc); ypos.append(yc) # for QA
+
+                if displayExposure:
+                    ds9.dot("o", xc, yc, ctype=ds9.CYAN, size=4, frame=frame)
 
         if cs.getNcand() == 0:
             raise RuntimeError("No good PSF candidates")
@@ -269,7 +217,7 @@ class PolypixPsfDeterminer(object):
             gain = np.mean(np.array([a.getElectronicParams().getGain() for a in ccd]))
         else:
             gain = 1.0
-            print >>sys.stderr, 'warning: setting gain to', gain
+            self.warnLog.log(pexLog.Log.WARN, "Setting gain to %g" % gain)
 
         psf = hscpsfLib.PolypixPsf(cs, nside, self.config.spatialOrder, fwhm, backnoise2, gain)
         psf.psf_make(0.2, 1000.0)
