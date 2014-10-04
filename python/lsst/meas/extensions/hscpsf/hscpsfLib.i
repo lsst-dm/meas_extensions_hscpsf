@@ -34,7 +34,6 @@ namespace lsst { namespace meas { namespace extensions { namespace hscpsf { } } 
 #include "lsst/meas/algorithms.h"
 #include "lsst/pex/logging.h"
 #include "lsst/meas/extensions/hscpsf/hscPsf.h"
-#include "lsst/meas/extensions/hscpsf/psfexHacking.h"
 
 #define PY_ARRAY_UNIQUE_SYMBOL LSST_MEAS_EXTENSIONS_HSCPSF_NUMPY_ARRAY_API
 #include "numpy/arrayobject.h"
@@ -64,8 +63,6 @@ namespace lsst { namespace meas { namespace extensions { namespace hscpsf { } } 
 %shared_ptr(lsst::meas::extensions::hscpsf::HscSpatialModelPolynomial);
 %shared_ptr(lsst::meas::extensions::hscpsf::HscSpatialModelLegendrePolynomial);
 
-%shared_ptr(lsst::meas::extensions::hscpsf::FakePsfexPsf);
 %shared_ptr(lsst::meas::extensions::hscpsf::PolypixPsf);
 
 %include "lsst/meas/extensions/hscpsf/hscPsf.h"
-%include "lsst/meas/extensions/hscpsf/psfexHacking.h"
