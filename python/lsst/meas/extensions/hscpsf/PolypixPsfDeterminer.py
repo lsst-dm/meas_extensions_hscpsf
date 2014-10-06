@@ -63,7 +63,7 @@ class PolypixPsfDeterminerConfig(pexConfig.Config):
     kernelSize = pexConfig.Field(
         doc = "radius of the kernel to create, relative to the square root of the stellar quadrupole moments",
         dtype = float,
-        default = 10.0,
+        default = 81.0,
     )
     kernelSizeMin = pexConfig.Field(
         doc = "Minimum radius of the kernel",
@@ -74,6 +74,11 @@ class PolypixPsfDeterminerConfig(pexConfig.Config):
         doc = "Maximum radius of the kernel",
         dtype = int,
         default = 45,
+    )
+    samplingSize = pexConfig.Field(
+        doc = "Resolution of the internal PSF model relative to the pixel size; e.g. 0.5 is equal to 2x oversampling",
+        dtype = float,
+        default = 0.5,
     )
     badMaskBits = pexConfig.ListField(
         doc="""List of mask bits which cause a source to be rejected as bad
@@ -167,15 +172,22 @@ class PolypixPsfDeterminer(object):
             if display:
                 rms = np.median(sizes)
                 print "Median PSF RMS size=%.2f pixels (\"FWHM\"=%.2f)" % (rms, 2*np.sqrt(2*np.log(2))*rms)
-        self.debugLog.debug(3, "Kernel size=%s" % (actualKernelSize,))
 
-        nside = actualKernelSize // 2
-        if actualKernelSize != (2*nside+1):
+        # If we manually set the resolution then we need the size in pixel units
+        pixKernelSize = actualKernelSize
+        if self.config.samplingSize > 0:
+            pixKernelSize = int(actualKernelSize*self.config.samplingSize)
+            if pixKernelSize % 2 == 0: pixKernelSize += 1 
+        self.debugLog.debug(3, "PSF Kernel size=%.2f, Image Kernel Size=%.2f" % 
+                            (actualKernelSize,pixKernelSize))
+
+        nside = pixKernelSize // 2
+        if pixKernelSize != (2*nside+1):
             raise RuntimeError('Fatal: for now, it is an error if the kernel size is even in PolypixPsfDeterminer')
 
         # Set size of image returned around candidate
-        psfCandidateList[0].setHeight(actualKernelSize)
-        psfCandidateList[0].setWidth(actualKernelSize)
+        psfCandidateList[0].setHeight(pixKernelSize)
+        psfCandidateList[0].setWidth(pixKernelSize)
 
         mask_bits = afwImage.MaskU_getPlaneBitMask(self.config.badMaskBits)            
         fluxName = 'initial.flux.sinc'    # FIXME should be in config? (meas_extensions_psfex has it in a config file)
