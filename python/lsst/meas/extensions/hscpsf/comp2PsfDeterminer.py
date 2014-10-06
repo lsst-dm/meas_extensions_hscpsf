@@ -101,8 +101,8 @@ class Comp2PsfDeterminer(object):
 
 
     def compare_images(self, label, im1, im2):
-        (w1, h1, x1, y1) = (im1.getWidth(), im1.getHeight(), im1.getXY0().getX(), im1.getXY0().getY)
-        (w2, h2, x2, y2) = (im2.getWidth(), im2.getHeight(), im2.getXY0().getX(), im2.getXY0().getY)
+        (w1, h1, x1, y1) = (im1.getWidth(), im1.getHeight(), im1.getXY0().getX(), im1.getXY0().getY())
+        (w2, h2, x2, y2) = (im2.getWidth(), im2.getHeight(), im2.getXY0().getX(), im2.getXY0().getY())
 
         if (w1,h1,x1,y1) != (w2,h2,x2,y2):
             print "   %s: couldn't compare images, (w,h,x,y) values differ:  %s  %s" % (label,(w1,h1,x1,y1),(w2,h2,x2,y2))
