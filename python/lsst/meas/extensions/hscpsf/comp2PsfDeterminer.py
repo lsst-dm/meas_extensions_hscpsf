@@ -105,7 +105,7 @@ class Comp2PsfDeterminer(object):
         (w2, h2, x2, y2) = (im2.getWidth(), im2.getHeight(), im2.getXY0().getX(), im2.getXY0().getY)
 
         if (w1,h1,x1,y1) != (w2,h2,x2,y2):
-            print "   %s: couldn't compare images, (w,h,x,y) values differ:  %s  %s" % ((w1,h1,x1,y1),(w2,h2,x2,y2))
+            print "   %s: couldn't compare images, (w,h,x,y) values differ:  %s  %s" % (label,(w1,h1,x1,y1),(w2,h2,x2,y2))
             return
 
         arr1 = im1.getArray()
