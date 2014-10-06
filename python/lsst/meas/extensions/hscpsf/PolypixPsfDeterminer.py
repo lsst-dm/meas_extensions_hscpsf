@@ -234,6 +234,7 @@ class PolypixPsfDeterminer(object):
         psf = hscpsfLib.PolypixPsf(cs, psf)
         psf.psf_make(0.01, 1000.0)
         psf.psf_clip()
+        cs = psf.psf_clean(0.01)
 
         # The next 2 loops mark bad candidates
         bad = np.ones(len(psfCandidateList), dtype=bool)
