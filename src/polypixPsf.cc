@@ -301,22 +301,19 @@ void PolypixPsf::_upsample(double *out, const double *in, double dx, double dy) 
     double x0 = (_nx/2) - (_psf_nx/2)*_psfstep + dx;
     double y0 = (_ny/2) - (_psf_ny/2)*_psfstep + dy;
 
-    double x1 = x0 + (_psf_nx-1) * _psfstep;
-    double y1 = y0 + (_psf_ny-1) * _psfstep;
-
-    if ((x0 < 0) || (x1 > _nx-1) || (y0 < 0) || (y1 > _ny-1)) {
-        //
-        // Currently treated as an error (rethink if this case actually arises in practice)
-        //
-        throw LSST_EXCEPT(pex::exceptions::InvalidParameterException,
-                          "PSF candidate image is too small in PolypixPsf::upsample()");
-    }
-
     for (int i = 0; i < _psf_nx; i++) {
         for (int j = 0; j < _psf_ny; j++) {
 	    double x = x0 + i*_psfstep;
 	    double y = y0 + j*_psfstep;
-            out[i*_psf_ny+j] = lanczos_interpolate_2d(order, x, y, _nx, _ny, in, _ny, &scratch[0], true, true);
+
+            //
+            // FIXME: following psfex, but seems fishy (better to enlarge the candidate image by
+            // the interpolation kernel width?)
+            //
+            if (x >= 0.0 && x <= _nx-1 && y >= 0.0 && y <= _ny-1)
+                out[i*_psf_ny+j] = lanczos_interpolate_2d(order, x, y, _nx, _ny, in, _ny, &scratch[0], true, true);
+            else
+                out[i*_psf_ny+j] = 0.0;
 	}
     }
 }
