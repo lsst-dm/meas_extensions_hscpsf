@@ -36,17 +36,17 @@ namespace lsst { namespace meas { namespace extensions { namespace hscpsf {
 static inline double square(double x) { return x*x; }
 
 
-PolypixPsf::PolypixPsf(CONST_PTR(HscCandidateSet) cs, int nside, int spatialOrder, double fwhm, double backnoise2, double gain)
+PolypixPsf::PolypixPsf(CONST_PTR(HscCandidateSet) cs, int nside, int psf_size, double psfstep, int spatialOrder, double fwhm, double backnoise2, double gain)
     : HscPsfBase(cs,nside)
 { 
-    this->_construct(spatialOrder, fwhm, backnoise2, gain);
+    this->_construct(psf_size, psfstep, spatialOrder, fwhm, backnoise2, gain);
 }
 
 
 PolypixPsf::PolypixPsf(CONST_PTR(HscCandidateSet) cs, CONST_PTR(PolypixPsf) base)
     : HscPsfBase(cs, base->_nside)
 {
-    this->_construct(base->_spatialOrder, base->_fwhm, base->_backnoise2, base->_gain);
+    this->_construct(base->_psf_nx, base->_psfstep, base->_spatialOrder, base->_fwhm, base->_backnoise2, base->_gain);
 
     _xmin = base->_xmin;
     _xmax = base->_xmax;
@@ -219,7 +219,7 @@ void PolypixPsf::eval(int nx_out, int ny_out, double x0, double y0, double *out,
 
 
 // private helper function for constructors
-void PolypixPsf::_construct(int spatialOrder, double fwhm, double backnoise2, double gain)
+void PolypixPsf::_construct(int psf_size, double psfstep, int spatialOrder, double fwhm, double backnoise2, double gain)
 {
     if (spatialOrder < 0)
         throw LSST_EXCEPT(pex::exceptions::InvalidParameterException, "spatialOrder < 0 in PolypixPsf constructor");
@@ -240,11 +240,11 @@ void PolypixPsf::_construct(int spatialOrder, double fwhm, double backnoise2, do
 
     _flux.resize(_ncand);
     _tcomp.resize(_psf_nx * _psf_ny * _ncoeffs, 0.0);
-    _psfstep = _fwhm/2.35 * 0.5;
+    _psfstep = (psfstep > 0.0) ? psfstep : (_fwhm/2.35 * 0.5);
 
     // FIXME understand this!
     if (_psfstep > 1.0)
-        throw LSST_EXCEPT(pex::exceptions::RuntimeErrorException, "I don't currently understand what to do if pixstep > 1");
+        throw LSST_EXCEPT(pex::exceptions::RuntimeErrorException, "I don't currently understand what to do if psfstep > 1");
 
     // FIXME revisit this!
     for (int icand = 0; icand < _ncand; icand++) {
@@ -381,7 +381,7 @@ std::vector<double> PolypixPsf::_make_cleaning_chi2(double prof_accuracy)
         // -------------------- subtract psf model and compute chi^2 --------------------
 
         double psf_extraccu2 = prof_accuracy*prof_accuracy*norm*norm;
-        double rmax2 = square(_psfstep * (double)(std::min(_nx,_ny)/2));
+        double rmax2 = square(_psfstep * (double)(std::min(_psf_nx,_psf_ny)/2));
         double xc = _current_xy[2*icand] - _xy0[2*icand];
         double yc = _current_xy[2*icand+1] - _xy0[2*icand+1];
         double chi2 = 0.0;

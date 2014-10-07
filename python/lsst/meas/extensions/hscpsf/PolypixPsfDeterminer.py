@@ -182,8 +182,7 @@ class PolypixPsfDeterminer(object):
                             (actualKernelSize,pixKernelSize))
 
         nside = pixKernelSize // 2
-        if pixKernelSize != (2*nside+1):
-            raise RuntimeError('Fatal: for now, it is an error if the kernel size is even in PolypixPsfDeterminer')
+        assert pixKernelSize == (2*nside+1)
 
         # Set size of image returned around candidate
         psfCandidateList[0].setHeight(pixKernelSize)
@@ -193,7 +192,7 @@ class PolypixPsfDeterminer(object):
         fluxName = 'initial.flux.sinc'    # FIXME should be in config? (meas_extensions_psfex has it in a config file)
         fluxFlagName = fluxName + ".flags"
 
-        cs = hscpsfLib.HscCandidateSet(mask_bits, actualKernelSize, actualKernelSize)
+        cs = hscpsfLib.HscCandidateSet(mask_bits, pixKernelSize, pixKernelSize)
 
         with ds9.Buffering():
             xpos = []; ypos = []
@@ -231,7 +230,7 @@ class PolypixPsfDeterminer(object):
             gain = 1.0
             self.warnLog.log(pexLog.Log.WARN, "Setting gain to %g" % gain)
 
-        psf = hscpsfLib.PolypixPsf(cs, nside, self.config.spatialOrder, fwhm, backnoise2, gain)
+        psf = hscpsfLib.PolypixPsf(cs, nside, actualKernelSize, self.config.samplingSize, self.config.spatialOrder, fwhm, backnoise2, gain)
         psf.psf_make(0.2, 1000.0)
         cs = psf.psf_clean(0.2)
 
