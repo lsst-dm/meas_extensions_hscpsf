@@ -262,7 +262,7 @@ protected:
 class PolypixPsf : public HscPsfBase
 {
 public:
-    PolypixPsf(CONST_PTR(HscCandidateSet) cs, int nside, int psf_size, double psfstep, int spatialOrder, double fwhm, double backnoise2, double gain);
+    PolypixPsf(CONST_PTR(HscCandidateSet) cs, int nside, int psf_size, double psfstep, CONST_PTR(HscSpatialModelBase) spatialModel, double fwhm, double backnoise2, double gain);
     PolypixPsf(CONST_PTR(HscCandidateSet) cs, CONST_PTR(PolypixPsf) base);
 
     void psf_make(double prof_accuracy, double regul);
@@ -271,9 +271,8 @@ public:
     PTR(HscCandidateSet) psf_clean(double prof_accuracy);
 
 protected:
-    int _spatialOrder;
-    int _ncoeffs;
     CONST_PTR(HscSpatialModelBase) _spatialModel;
+    int _ncoeffs;
 
     double _fwhm;
     double _backnoise2;
@@ -294,7 +293,7 @@ protected:
     virtual void eval(int nx_out, int ny_out, double x0, double y0, double *out, double x, double y) const;
 
 private:
-    void _construct(int psf_size, double psfstep, int spatialOrder, double fwhm, double backnoise2, double gain);
+    void _construct(int psf_size, double psfstep, CONST_PTR(HscSpatialModelBase) sm, double fwhm, double backnoise2, double gain);
 };
 
 

@@ -230,7 +230,11 @@ class PolypixPsfDeterminer(object):
             gain = 1.0
             self.warnLog.log(pexLog.Log.WARN, "Setting gain to %g" % gain)
 
-        psf = hscpsfLib.PolypixPsf(cs, nside, actualKernelSize, self.config.samplingSize, self.config.spatialOrder, fwhm, backnoise2, gain)
+        xvec = np.array([ cand.getSource().get('initial.centroid.sdss.x') for cand in psfCandidateList ])
+        yvec = np.array([ cand.getSource().get('initial.centroid.sdss.y') for cand in psfCandidateList ])
+        spatialModel = hscpsfLib.HscSpatialModelPolynomial(self.config.spatialOrder, min(xvec), max(xvec), min(yvec), max(yvec))
+
+        psf = hscpsfLib.PolypixPsf(cs, nside, actualKernelSize, self.config.samplingSize, spatialModel, fwhm, backnoise2, gain)
         psf.psf_make(0.2, 1000.0)
         cs = psf.psf_clean(0.2)
 

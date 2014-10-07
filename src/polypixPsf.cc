@@ -36,17 +36,17 @@ namespace lsst { namespace meas { namespace extensions { namespace hscpsf {
 static inline double square(double x) { return x*x; }
 
 
-PolypixPsf::PolypixPsf(CONST_PTR(HscCandidateSet) cs, int nside, int psf_size, double psfstep, int spatialOrder, double fwhm, double backnoise2, double gain)
+PolypixPsf::PolypixPsf(CONST_PTR(HscCandidateSet) cs, int nside, int psf_size, double psfstep, CONST_PTR(HscSpatialModelBase) spatialModel, double fwhm, double backnoise2, double gain)
     : HscPsfBase(cs,nside)
 { 
-    this->_construct(psf_size, psfstep, spatialOrder, fwhm, backnoise2, gain);
+    this->_construct(psf_size, psfstep, spatialModel, fwhm, backnoise2, gain);
 }
 
 
 PolypixPsf::PolypixPsf(CONST_PTR(HscCandidateSet) cs, CONST_PTR(PolypixPsf) base)
     : HscPsfBase(cs, base->_nside)
 {
-    this->_construct(base->_psf_nx, base->_psfstep, base->_spatialOrder, base->_fwhm, base->_backnoise2, base->_gain);
+    this->_construct(base->_psf_nx, base->_psfstep, base->_spatialModel, base->_fwhm, base->_backnoise2, base->_gain);
 
     _xmin = base->_xmin;
     _xmax = base->_xmax;
@@ -219,18 +219,14 @@ void PolypixPsf::eval(int nx_out, int ny_out, double x0, double y0, double *out,
 
 
 // private helper function for constructors
-void PolypixPsf::_construct(int psf_size, double psfstep, int spatialOrder, double fwhm, double backnoise2, double gain)
+void PolypixPsf::_construct(int psf_size, double psfstep, CONST_PTR(HscSpatialModelBase) spatialModel, double fwhm, double backnoise2, double gain)
 {
-    if (spatialOrder < 0)
-        throw LSST_EXCEPT(pex::exceptions::InvalidParameterException, "spatialOrder < 0 in PolypixPsf constructor");
-
     _fwhm = fwhm;
     _backnoise2 = backnoise2;
     _gain = gain;
 
-    _spatialOrder = spatialOrder;
-    _spatialModel = boost::make_shared<HscSpatialModelPolynomial>(_spatialOrder, _xmin, _xmax, _ymin, _ymax);
-    _ncoeffs = _spatialModel->getNcoeffs();
+    _spatialModel = spatialModel;
+    _ncoeffs = spatialModel->getNcoeffs();
 
     if (_ncand <= _ncoeffs)
         throw LSST_EXCEPT(pex::exceptions::InvalidParameterException, "too few spatial candidates in PolypixPsf constructor");
