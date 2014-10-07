@@ -209,9 +209,6 @@ class PolypixPsfDeterminer(object):
 
                 cs.add(psfCandidate, i, flux, sizes[i])
 
-                if flagKey is not None:
-                    source.set(flagKey, True)
-
                 xpos.append(xc); ypos.append(yc) # for QA
 
                 if displayExposure:
@@ -251,17 +248,13 @@ class PolypixPsfDeterminer(object):
         psf.psf_clip()
         cs = psf.psf_clean(0.01)
 
-        # The next 2 loops mark bad candidates
-        bad = np.ones(len(psfCandidateList), dtype=bool)
-        for icand in xrange(cs.getNcand()):
-            bad[cs.getId(icand)] = False
+        good_indices = [ cs.getId(icand) for icand in xrange(cs.getNcand()) ]
+        if flagKey is not None:
+            for (icand, cand) in enumerate(psfCandidateList):
+                if icand in good_indices:
+                    cand.getSource().set(flagKey, True)
 
-        for i in xrange(len(psfCandidateList)):
-            status = afwMath.SpatialCellCandidate.BAD if bad[i] else afwMath.SpatialCellCandidate.UNKNOWN
-            psfCandidateList[i].setStatus(status)
-
-        xpos = np.array(xpos); ypos = np.array(ypos)
-        numGoodStars = len(xpos)
+        numGoodStars = len(good_indices)
         avgX, avgY = np.mean(xpos), np.mean(ypos)
 
         #

@@ -54,9 +54,11 @@ class Comp2PsfDeterminer(object):
 
 
     def determinePsf(self, exposure, psfCandidateList, metadata=None, flagKey=None):
+        assert flagKey is not None
+        flag0 = [ c.getSource().get(flagKey) for c in psfCandidateList ]
+
         xsrc = np.array([ c.getSource().getX() for c in psfCandidateList ])
         ysrc = np.array([ c.getSource().getY() for c in psfCandidateList ])
-        status0 = [ c.getStatus() for c in psfCandidateList ]
         
         # These are (x,y) values where the psfs will be compared
         xvec = np.linspace(np.min(xsrc)+16.32, np.max(xsrc)-19.77, 5)
@@ -65,17 +67,17 @@ class Comp2PsfDeterminer(object):
         print '\nComp2PsfDeterminer: starting first psf run (%s)\n' % self.config.psfName1
 
         determiner1 = self.determiner_class1(self.determiner_config1)
-        (psf1, psfCellSet1) = determiner1.determinePsf(exposure, psfCandidateList, metadata, flagKey=None)
-        bad1 = [ i for (i,c) in enumerate(psfCandidateList) if (c.getStatus() == afwMath.SpatialCellCandidate.BAD) ]
+        (psf1, psfCellSet1) = determiner1.determinePsf(exposure, psfCandidateList, metadata, flagKey)
+        flag1 = [ c.getSource().get(flagKey) for c in psfCandidateList ]
 
         print '\nComp2PsfDeterminer: starting second psf run (%s)\n' % self.config.psfName2
 
-        for (c,s) in zip(psfCandidateList, status0):
-            c.setStatus(s)
+        for c in psfCandidateList:
+            c.getSource().set(flagKey, False)
 
         determiner2 = self.determiner_class2(self.determiner_config2)
-        (psf2, psfCellSet2) = determiner2.determinePsf(exposure, psfCandidateList, metadata, flagKey=None)
-        bad2 = [ i for (i,c) in enumerate(psfCandidateList) if (c.getStatus() == afwMath.SpatialCellCandidate.BAD) ]
+        (psf2, psfCellSet2) = determiner2.determinePsf(exposure, psfCandidateList, metadata, flagKey)
+        flag2 = [ c.getSource().get(flagKey) for c in psfCandidateList ]
 
         print '\nComp2PsfDeterminer: table of comparison values follows'
 
@@ -91,6 +93,8 @@ class Comp2PsfDeterminer(object):
                                     psf1.doComputeKernelImage(afwGeom.Point2D(x,y), afwImage.Color()),
                                     psf2.doComputeKernelImage(afwGeom.Point2D(x,y), afwImage.Color()))
 
+        bad1 = [ i for (i,x) in enumerate(flag1) if not x ]
+        bad2 = [ i for (i,x) in enumerate(flag2) if not x ]
         print '\nComp2PsfDeterminer: the following candidates were marked bad by %s: %s' % (self.config.psfName1, bad1)
         print 'Comp2PsfDeterminer: the following candidates were marked bad by %s: %s\n' % (self.config.psfName2, bad2)
 
