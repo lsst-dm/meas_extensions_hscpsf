@@ -231,8 +231,8 @@ void PolypixPsf::_construct(int psf_size, double psfstep, CONST_PTR(HscSpatialMo
     if (_ncand <= _ncoeffs)
         throw LSST_EXCEPT(pex::exceptions::InvalidParameterException, "too few spatial candidates in PolypixPsf constructor");
 
-    _psf_nx = _nx;
-    _psf_ny = _ny;
+    _psf_nx = psf_size;
+    _psf_ny = psf_size;
 
     _flux.resize(_ncand);
     _tcomp.resize(_psf_nx * _psf_ny * _ncoeffs, 0.0);
