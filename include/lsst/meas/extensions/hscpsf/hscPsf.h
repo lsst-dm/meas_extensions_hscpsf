@@ -61,7 +61,7 @@ public:
     HscPsfBase(CONST_PTR(HscCandidateSet) cs, int nside);
 
     // called when PSF is evaluated e.g. at star or galaxy position (FIXME make pure virtual)
-    virtual void eval(int nx_out, int ny_out, double x0, double y0, double *out, double x, double y) = 0;
+    virtual void eval(int nx_out, int ny_out, double x0, double y0, double *out, double x, double y) const = 0;
 
     int getNcand() const { return _ncand; }
     int getNx() const { return _nx; }
