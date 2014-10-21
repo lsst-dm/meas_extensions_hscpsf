@@ -37,14 +37,31 @@ namespace lsst { namespace meas { namespace extensions { namespace hscpsf {
 class HscCandidateSet;
 class HscSpatialModelBase;
 
-    
+
+//
+// Base class for several PSF fitters (at the moment, only the PolypixPsf
+// subclass is "release ready", so just ignore the rest of the subclasses!)
+//
+// The base class is pretty simple: it just keeps track of the star
+// images used to fit the PSF, their locations, and an image of the PSF
+// at each star location.
+//
+// I also found it convenient to define a pure virtual function eval()
+// which computes the PSF image given an arbitrary focal plane location, 
+// image size and (x0,y0).  This reduces cut-and-paste between related
+// routines such as meas::algorithms::ImagePsf::doComputeImage() and
+// meas::algorithms::doComputeKernelImage().
+//
+// Loose ends: I haven't yet implemented Psf::clone() or PSF serialization,
+// but hscProcessCcd.py runs to completion.
+//
 class HscPsfBase : public meas::algorithms::ImagePsf {
 public:
     // @nside determines size of PSF: returned image is (2*nside+1)-by-(2*nside+1)
     HscPsfBase(CONST_PTR(HscCandidateSet) cs, int nside);
 
     // called when PSF is evaluated e.g. at star or galaxy position (FIXME make pure virtual)
-    virtual void eval(int nx_out, int ny_out, double x0, double y0, double *out, double x, double y) const;
+    virtual void eval(int nx_out, int ny_out, double x0, double y0, double *out, double x, double y) = 0;
 
     int getNcand() const { return _ncand; }
     int getNx() const { return _nx; }
@@ -68,8 +85,13 @@ public:
     PTR(HscCandidateSet) getTrimmedCandidateSet() const;
 
     double get_total_reduced_chi2() const;
-
-    // devirtualize ImagePsf base class
+    
+    //
+    // Devirtualize ImagePsf base class.  Note that meas::algorithms::ImagePsf::doComputeImage() and 
+    // meas::algorithms::ImagePsf::doComputeKernelImage() are implemented here in the HscPsfBase
+    // base class, but the implementations are just wrappers around the pure virtual HscPsfBase::eval(),
+    // so the real functionality must still be implemented in a subclass.
+    //
     virtual PTR(afw::detection::Psf)  clone() const;
     virtual afw::geom::Point2D        getAveragePosition() const;
     virtual PTR(Image)                doComputeImage(afw::geom::Point2D const &position, afw::image::Color const &color) const;
@@ -104,13 +126,20 @@ protected:
     void _updateCurrentPsfImg(int icand, const double *img);
 
 public:
-    // static helper functions
+    // The only public member functions in HscPsfBase are some static helper functions...
+
+    // Returns residual chi^2 of fit
+    static double fit_basis_images(double *out_ampl, int nbf, int nxy, const double *iv, const double *im, const double *basis_images);
+
+    // Constructs 2-by-2 shear matrix from magnification and shear
     static void make_shear_matrix(double &axx, double &axy, double &ayy, double gamma1, double gamma2, double kappa);
-    static double fit_basis_images(double *out_ampl, int nbf, int nxy, const double *iv, const double *im, const double *basis_images);   // returns residual chi^2
 
     //
     // Static helper function for Lanczos interpolation
     // Note: scratch should be a buffer of length 4*order
+    //
+    // FIXME: for now I'm using Lanczos interpolation routines which are cut-and-pasted
+    // from my own interpolation library.  Switch to afw implementation?
     //
     static double lanczos_interpolate_2d(int order, double x, double y, int nx, int ny, const double *f, 
                                          int stride, double *scratch, bool zero_pad, bool normalize);
@@ -134,13 +163,130 @@ public:
 };
 
 
+//
+// PolypixPsf: this is a PSF fitter which is machine precision equivalent to psfex
+// (at least, the way we're currently using psfex in the HSC pipeline!) but using
+// HSC/LSST pipeline data structures and many fewer lines of code.
+//
+// In order to obtain strict equivalence, I preserved some quirks of psfex which
+// we may want to change later!
+//
+class PolypixPsf : public HscPsfBase
+{
+public:
+    //
+    // This constructor creates a PolypixPsf from scratch.
+    //
+    //   @nside parameterizes the PSF size in "CCD pixels": PSF images are (2*nside+1)-by-(2*nside+1)
+    //   @psf_size parameterizes the PSF size in "oversampled pixels"
+    //   @psfstep is the ratio (oversampled pixel size) / (CCD pixel size)
+    //
+    //   @fwhm, @backnoise, @gain are psfex relics that we may want to rethink...
+    //
+    //      - fwhm is used in two places.  First, it determines the default psfstep if the psfstep=0
+    //        is passed to the constructor.  Second, it determines the "tapering length" in a stage
+    //        of the psf fitter where the
+    //
+    //      - The backnoise and gain parameters are psfex's parameterization of the CCD noise.
+    //        Since the HSC/LSST pipeline directly estimates the CCD noise (PsfCandidate::getMaskedImage::getVariance)
+    //        it may be better to eliminate these parameters in favor of direct noise estimates.
+    //
+    //        Another possible improvement: treat pixels which are flagged as bad (e.g. due to
+    //        a cosmic ray) as infinite variance so that they get assigned zero statistical weight
+    //        in the PSF fit.
+    //
+    // Note that the PSF fitting isn't done in the constructor; the caller will almost certainly
+    // want to call some combination of psf_make(), psf_clip() and psf_clean() after constructing
+    // the PolypixPsf.  (See code in PolypixPsfDeterminer.py for an example.)
+    //
+    PolypixPsf(CONST_PTR(HscCandidateSet) cs, int nside, int psf_size, double psfstep, 
+	       CONST_PTR(HscSpatialModelBase) spatialModel, double fwhm, double backnoise2, double gain);
+
+    // Construct from existing PolypixPsf, but a new set of star images.
+    PolypixPsf(CONST_PTR(HscCandidateSet) cs, CONST_PTR(PolypixPsf) base);
+
+    // PSF fitting is done here
+    void psf_make(double prof_accuracy, double regul);
+
+    //
+    // Following psfex, this routine "clips" the PSF by setting it to zero outside a circular aperture,
+    // with smooth tapering to zero near the edge of the aperture.
+    //
+    void psf_clip();
+
+    //
+    // Sorts stars into "good" and "bad" based on goodness of fit to the PSF model.
+    //
+    // The list of good stars is returned.  This routine does not re-fit the PSF model to the
+    // list of good stars; if this behavior is desired then caller should construct a new PolypixPsf
+    // using the star list returned by psf_clean().
+    //
+    PTR(HscCandidateSet) psf_clean(double prof_accuracy);
+
+    // Devirtualizes HscPsfBase::eval()
+    virtual void eval(int nx_out, int ny_out, double x0, double y0, double *out, double x, double y) const;
+
+protected:
+    CONST_PTR(HscSpatialModelBase) _spatialModel;
+    int _ncoeffs;    // always equal to _spatialModel->getNcoeffs()
+
+    // psfex relics
+    double _fwhm;
+    double _backnoise2;
+    double _gain;
+    
+    // size of psf in "oversampled pixels"
+    int _psf_nx;
+    int _psf_ny;
+
+    // oversampled pixel size (in units of "CCD pixels")
+    double _psfstep;
+
+    // shape (_ncand) array containing flux of each star
+    std::vector<double> _flux;
+
+    // shape (_psf_nx, _psf_ny, _ncoeffs) array containing PSF coeffients computed in psf_make()
+    std::vector<double> _tcomp;
+
+    // helper functions which convert between CCD images and oversampled images
+    void _downsample(double *out, int nx_out, int ny_out, const double *in, double dx, double dy) const;
+    void _upsample(double *out, const double *in, double dx, double dy) const;
+
+    //
+    // Returns per-star goodness-of-fit statistic, used in psf_clean().
+    //
+    // I'm currently preserving some psfex logic which seems arbitrary, and not
+    // really consistent with the implicit definition of chi^2 in psf_make(), 
+    // but this is something we can revisit later...
+    //
+    std::vector<double> _make_cleaning_chi2(double prof_accuracy);
+
+private:
+    // helper function called by constructors
+    void _construct(int psf_size, double psfstep, CONST_PTR(HscSpatialModelBase) sm, double fwhm, double backnoise2, double gain);
+};
+
+
+//
+// HscCandidateSet: Represents a set of stars used for PSF fitting
+// (images, fluxes, sizes, locations, opaque IDs).
+//
+// This data is all available in the list of meas::algorithms::PsfCandidate
+// objects, so all this class does is reorganize into a bunch of flat arrays,
+// but I found it convenient to do this!
+//
 class HscCandidateSet {
 public:
+    // Construct empty candidate set
     HscCandidateSet(afw::image::MaskPixel mask_bits, int nx, int ny);
 
+    // Add a new star
+    // Note: @id is a per-star identifier which is opaque to HscCandidateSet
     void add(const meas::algorithms::PsfCandidate<float> &cand, int id, double flux, double size);
-    void add(CONST_PTR(HscCandidateSet) cs, int index, double x, double y);
+
+    // Add a star from an existing HscCandidateSet
     void add(CONST_PTR(HscCandidateSet) cs, int index);
+    void add(CONST_PTR(HscCandidateSet) cs, int index, double x, double y);   // recenter
 
     int getNx() const     { return _nx; }
     int getNy() const     { return _ny; }
@@ -177,7 +323,7 @@ private:
 
     std::vector<double> _im;    // shape (ncand,nx,ny) array 
     std::vector<double> _iv;    // shape (ncand,nx,ny) array 
-    std::vector<double> _xy;    // shape (ncand,2) array    [ XXX is this relative to xy0? ]
+    std::vector<double> _xy;    // shape (ncand,2) array
     std::vector<int>    _xy0;   // shape (ncand,2) array
     std::vector<double> _chi2;  // shape (ncand,) array; note that this is the chi^2 to zero, not the chi^2 to the PSF model!
     std::vector<int>    _ndof;  // shape (ncand,) array; number of unmasked pixels
@@ -187,6 +333,20 @@ private:
 };
 
 
+//
+// HscSpatialModelBase: this virtual base class represents a functional
+// form for a quantity which varies over a 2D image.
+//
+// Example: the subclass HscSpatialModelPolynomial defines a polynomial functional
+// form of degree N, parameterized by N(N+1)/2 coefficients.  Note that the 
+// object represents a "functional form", not the function itself, i.e. an object
+// of class HscSpatialModelPolynomial contains the integer degree N, but the array
+// of N(N+1)/2 coefficients is not contained in the HscSpatialModelPolynomial object.
+//
+// At the moment, the only spatial models which are implemented are polynomials;
+// the HscSpatialModelBase class is just a placeholder in case we want to generalize
+// later (e.g. by implementing Kriging).
+//
 class HscSpatialModelBase {
 public:
     // number of coefficents needed to represent a spatially varying scalar quantity (assumed fixed at construction)
@@ -225,17 +385,26 @@ public:
     virtual ~HscSpatialModelBase() { }
 
     //
-    // ndarray-based versions of eval(), optimize() and normalizePcaImages()
-    // Currently these are only used in python unit tests, but maybe they will become the primary interface eventually...
+    // Alternate interfaces for eval(), optimize(), and normalizePcaImages() which use ndarrays 
+    // instead of bare pointers.  FIXME: should these be the only interfaces?
     //
-    ndarray::Array<double,2,2> eval(const ndarray::Array<const double,2,2> &xy, const ndarray::Array<const double,2,2> &fcoeffs) const;
+    ndarray::Array<double,2,2> eval(const ndarray::Array<const double,2,2> &xy, 
+				    const ndarray::Array<const double,2,2> &fcoeffs) const;
 
-    ndarray::Array<double,1,1> optimize(const ndarray::Array<const double,2,2> &xy, const ndarray::Array<const double,1,1> &a, const ndarray::Array<const double,1,1> &b, double regul) const;
+    ndarray::Array<double,1,1> optimize(const ndarray::Array<const double,2,2> &xy, 
+					const ndarray::Array<const double,1,1> &a, 
+					const ndarray::Array<const double,1,1> &b, double regul) const;
 
-    void normalizePcaImages(const ndarray::Array<double,2,2> &pcas, const ndarray::Array<double,1,1> &ampl, const ndarray::Array<double,2,2> &sm) const;
+    void normalizePcaImages(const ndarray::Array<double,2,2> &pcas, 
+			    const ndarray::Array<double,1,1> &ampl, 
+			    const ndarray::Array<double,2,2> &sm) const;
 };
 
 
+//
+// HscSpatialModelPolynomial: this subclass of HscSpatialModelBase
+// represents a degree-N polynomial functional form P(x,y).
+//
 class HscSpatialModelPolynomial : public HscSpatialModelBase {
 public:
     HscSpatialModelPolynomial(int order, double xmin, double xmax, double ymin, double ymax);
@@ -257,47 +426,11 @@ protected:
 
     void _eval_xypow_scaled(double *out, int ncand, const double *t) const;
 };
-    
-
-class PolypixPsf : public HscPsfBase
-{
-public:
-    PolypixPsf(CONST_PTR(HscCandidateSet) cs, int nside, int psf_size, double psfstep, CONST_PTR(HscSpatialModelBase) spatialModel, double fwhm, double backnoise2, double gain);
-    PolypixPsf(CONST_PTR(HscCandidateSet) cs, CONST_PTR(PolypixPsf) base);
-
-    void psf_make(double prof_accuracy, double regul);
-    void psf_clip();
-
-    PTR(HscCandidateSet) psf_clean(double prof_accuracy);
-
-protected:
-    CONST_PTR(HscSpatialModelBase) _spatialModel;
-    int _ncoeffs;
-
-    double _fwhm;
-    double _backnoise2;
-    double _gain;
-    
-    int _psf_nx;             // psfex psf->size[0]
-    int _psf_ny;             // psfex psf->size[1]
-    double _psfstep;         // FIXME look at psfex source and figure out the difference between pixstep and psfstep
-
-    std::vector<double> _flux;           // shape (_ncand)
-    std::vector<double> _tcomp;          // shape (_psf_nx, _psf_ny, _ncoeffs)
-
-    void _downsample(double *out, int nx_out, int ny_out, const double *in, double dx, double dy) const;
-    void _upsample(double *out, const double *in, double dx, double dy) const;
-
-    std::vector<double> _make_cleaning_chi2(double prof_accuracy);
-
-    virtual void eval(int nx_out, int ny_out, double x0, double y0, double *out, double x, double y) const;
-
-private:
-    void _construct(int psf_size, double psfstep, CONST_PTR(HscSpatialModelBase) sm, double fwhm, double backnoise2, double gain);
-};
 
 
 // -------------------------------------------------------------------------------------------------
+//
+// Everything after this point is stuff which is not "release ready", so just ignore it for now!
 
 
 class HscSplinePsfBase : public HscPsfBase {
@@ -323,6 +456,9 @@ public:
     // Note: @icand is only needed for (x0,y0)
     //
     void _fillSplineImage(double *out, const double *profile, int icand, double x, double y, double gamma1, double gamma2, double kappa) const;
+
+    // Devirtualizes HscPsfBase::eval()
+    virtual void eval(int nx_out, int ny_out, double x0, double y0, double *out, double x, double y) const;
 
 protected:
     int _nr;
@@ -443,6 +579,9 @@ public:
     // callback for XY optimization
     double eval_shifted_chi2(int icand, double x, double y) const;
 
+    // Devirtualizes HscPsfBase::eval()
+    virtual void eval(int nx_out, int ny_out, double x0, double y0, double *out, double x, double y) const;
+
 protected:
     std::vector<double> _pca_coeffs;      // shape (ncand,npca)
 
@@ -460,6 +599,8 @@ public:
     HscPcaPsf(CONST_PTR(HscPcaPsfBase) psf0, CONST_PTR(HscSpatialModelBase) spatialModel);
 
     virtual void optimize();
+
+    // Devirtualizes HscPsfBase::eval()
     virtual void eval(int nx_out, int ny_out, double x0, double y0, double *out, double x, double y) const;
 
     // callback for XY optimization

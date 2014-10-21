@@ -57,6 +57,11 @@ PolypixPsf::PolypixPsf(CONST_PTR(HscCandidateSet) cs, CONST_PTR(PolypixPsf) base
 }
 
 
+//
+// Logic here follows psfex, and could perhaps be improved
+// by minimizing chi^2 in "CCD image" space, or by using
+// variance estimates from the LSST/HSC pipeline/
+//
 void PolypixPsf::psf_make(double prof_accuracy, double regul)
 {
     int npix = _psf_nx * _psf_ny;
@@ -64,7 +69,6 @@ void PolypixPsf::psf_make(double prof_accuracy, double regul)
     std::vector<double> weight(_ncand * npix);
 
     for (int icand = 0; icand < _ncand; icand++) {
-        // psfex sample->dx, sample->dy
         double dx = _current_xy[2*icand] - _xy0[2*icand] - 0.5*(double)(_nx-1);
         double dy = _current_xy[2*icand+1] - _xy0[2*icand+1] - 0.5*(double)(_ny-1);
 
@@ -114,9 +118,7 @@ PTR(HscCandidateSet) PolypixPsf::psf_clean(double prof_accuracy)
     double chimean, chisig, chimed;
     double chisig1 = 0.0;   // used to save value from previous iteration
 
-    //
     // Produce k-sigma-clipped statistics
-    //
     for (int iter = 0; iter < 100; iter++) {
         chimean = chisig = 0.0;
         for (int i = lo; i < hi; i++) {
@@ -161,9 +163,15 @@ void PolypixPsf::psf_clip()
     double dr2 = _fwhm / _psfstep;
     dr2 = std::max(dr2, 1.0);
 
-    // FIXME bug in psfex here?
-    if (dr2 >= rmax2)
-        dr2 = rmax2/2.0;
+    if (dr2 >= rmax2) {
+	//
+	// FIXME bug in psfex here?  dr2=rmax2 would make more sense.
+	//
+	// For now I'm not fixing it since the short-term goal is to get machine precision
+	// equivalence with psfex.
+	//
+        dr2 = rmax2/2.0;  
+    }
 
     double rmin2 = rmax2 - dr2;
     rmin2 *= rmin2;
@@ -187,7 +195,6 @@ void PolypixPsf::psf_clip()
 }
 
 
-// follows PsfexPsf::_doComputeImage() in meas_extensions_psfex
 void PolypixPsf::eval(int nx_out, int ny_out, double x0, double y0, double *out, double x, double y) const
 {
     double xy[2];
@@ -252,6 +259,7 @@ void PolypixPsf::_construct(int psf_size, double psfstep, CONST_PTR(HscSpatialMo
 }
 
 
+// convert image resolution from "oversampled pixels" to "CCD pixels"
 void PolypixPsf::_downsample(double *out, int nx_out, int ny_out, const double *in, double dx, double dy) const
 {
     const int order = 3;
@@ -283,17 +291,14 @@ void PolypixPsf::_downsample(double *out, int nx_out, int ny_out, const double *
     }
 }
 
+
+// convert image resolution from "CCD pixels" to "oversampled pixels"
 void PolypixPsf::_upsample(double *out, const double *in, double dx, double dy) const
 {
     const int order = 3;
     std::vector<double> scratch(4*order);
 
     if ((_nx % 2 == 0) || (_ny % 2 == 0) || (_psf_nx % 2 == 0) || (_psf_ny % 2 == 0)) {
-        //
-        // The psfex behavior in the even case looks fishy to me, so I decided to throw an
-        // exception to trap the even case, in order to rethink things if this case actually
-        // arises in practice..
-        //
         throw LSST_EXCEPT(pex::exceptions::InvalidParameterException, 
                           "Image size is even in PolypixPsf::upsample(); this is currently unsupported");
     }
@@ -320,7 +325,11 @@ void PolypixPsf::_upsample(double *out, const double *in, double dx, double dy) 
 
 
 //
-// Preserves a lot of psfex logic that I can't say I understand!
+// This routine here computes the "cleaning chi^2" used as a goodness-of-fit
+// statistic when discarding bad stars in psf_clean().
+//
+// Logic here follows psfex for now -- I have to say that the logic seems a
+// little murky and arbitrary, but let's revisit it later!
 //
 std::vector<double> PolypixPsf::_make_cleaning_chi2(double prof_accuracy)
 {

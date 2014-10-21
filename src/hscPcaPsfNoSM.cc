@@ -212,6 +212,12 @@ void HscPcaPsfNoSM::_optimize_pca_coeffs_and_update()
 }
 
 
+void HscPcaPsfNoSM::eval(int nx_out, int ny_out, double x0, double y0, double *out, double x, double y) const
+{
+    throw LSST_EXCEPT(pex::exceptions::RuntimeErrorException, "HscPcaPsfNoSM::eval() not implemented");
+}
+
+
 // -------------------------------------------------------------------------------------------------
 
 

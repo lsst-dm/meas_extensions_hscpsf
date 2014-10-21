@@ -168,13 +168,6 @@ double HscPsfBase::get_total_reduced_chi2() const
 }
 
 
-void HscPsfBase::eval(int nx_out, int ny_out, double x0, double y0, double *out, double x, double y) const
-{
-    throw LSST_EXCEPT(pex::exceptions::RuntimeErrorException, "HscPsfBase::eval() not implemented by subclass");
-}
-
-
-
 PTR(afw::detection::Psf) HscPsfBase::clone() const
 {
     throw LSST_EXCEPT(lsst::pex::exceptions::RuntimeErrorException, "HscPsfBase::clone() not implemented yet");   // FIXME
@@ -185,7 +178,7 @@ afw::geom::Point2D HscPsfBase::getAveragePosition() const
     return afw::geom::Point2D(_xmean, _ymean);
 }
 
-// in the same coordinate system as the pixelized image
+// Returned image is in the same coordinate system as the CCD image
 PTR(HscPsfBase::Image) HscPsfBase::doComputeImage(afw::geom::Point2D const &position, afw::image::Color const &color) const
 {
     int n = 2*_nside + 1;
@@ -205,7 +198,7 @@ PTR(HscPsfBase::Image) HscPsfBase::doComputeImage(afw::geom::Point2D const &posi
     return ret;
 }
 
-
+// Returned image is in a coordinate system centered at the star
 PTR(HscPsfBase::Image) HscPsfBase::doComputeKernelImage(afw::geom::Point2D const &position, afw::image::Color const &color) const
 {
     int n = 2*_nside + 1;
@@ -283,7 +276,12 @@ double HscPsfBase::fit_basis_images(double *out_ampl, int nbf, int nxy, const do
 }
 
 
-// anonymous namespace of helper functions for lanczos interpolation
+//
+// Anonymous namespace of helper functions for lanczos interpolation
+//
+// FIXME this code is cut-and-paste from my personal interpolation library.
+// Replace with code from afw?
+//
 namespace {
     inline double lanczos_kernel(int order, double x)
     {
@@ -354,7 +352,7 @@ namespace {
             }
         }
     }
-};   // anonymous namespace of helper functions for HscPsfBase::lanczos_offset_2d()
+};   // anonymous namespace of helper functions for lanczos interpolation
 
 
 // static member function

@@ -170,6 +170,11 @@ const double *HscSplinePsfBase::getProfile(int icand) const
     return &_profile[icand * _nr];
 }
 
+void HscSplinePsfBase::eval(int nx_out, int ny_out, double x0, double y0, double *out, double x, double y) const
+{
+    throw LSST_EXCEPT(pex::exceptions::RuntimeErrorException, "HscSplinePsfBase::eval() not implemented")
+}
+
 
 // -------------------------------------------------------------------------------------------------
 

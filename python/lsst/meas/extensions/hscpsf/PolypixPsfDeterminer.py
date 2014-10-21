@@ -41,6 +41,9 @@ import lsst.meas.algorithms.psfDeterminerRegistry as psfDeterminerRegistry
 import lsst.meas.extensions.hscpsf.hscpsfLib as hscpsfLib
 
 
+#
+# Note: there is lots of cut-and-paste from PsfexPsfDeterminer.py here!
+#
 class PolypixPsfDeterminerConfig(pexConfig.Config):
     spatialOrder = pexConfig.Field(
         doc = "specify spatial order for PSF kernel creation",
@@ -135,6 +138,7 @@ class PolypixPsfDeterminer(object):
         nCand = len(psfCandidateList)
         if nCand == 0:
             raise RuntimeError("No PSF candidates supplied.")
+
         #
         # How big should our PSF models be?
         #
@@ -231,6 +235,10 @@ class PolypixPsfDeterminer(object):
         yvec = np.array([ cand.getSource().get('initial.centroid.sdss.y') for cand in psfCandidateList ])
         spatialModel = hscpsfLib.HscSpatialModelPolynomial(self.config.spatialOrder, min(xvec), max(xvec), min(yvec), max(yvec))
 
+        #
+        # This sequence of PSF fits, including "magic numbers" such as psf_make(0.2, 1000.0)
+        # matches internal logic in psfex!
+        #
         psf = hscpsfLib.PolypixPsf(cs, nside, actualKernelSize, self.config.samplingSize, spatialModel, fwhm, backnoise2, gain)
         psf.psf_make(0.2, 1000.0)
         cs = psf.psf_clean(0.2)
